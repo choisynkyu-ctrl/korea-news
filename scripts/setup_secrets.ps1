@@ -7,13 +7,26 @@ $RedirectUri = "https://localhost:5000"
 $Repo = & $gh repo view --json nameWithOwner -q .nameWithOwner
 $Existing = (& $gh secret list --repo $Repo) | ForEach-Object { ($_ -split "\s+")[0] }
 
-function Read-Secret($prompt) {
-  $s = Read-Host $prompt -AsSecureString
-  ([Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s))).Trim()
+function Read-Secret($prompt, [switch]$Optional) {
+  while ($true) {
+    $s = Read-Host $prompt -AsSecureString
+    $v = ([Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s))).Trim()
+    if ($v -or $Optional) { return $v }
+    Write-Host "  값이 비어 있습니다. 복사한 뒤 터미널에서 마우스 오른쪽 클릭으로 붙여넣고 Enter를 누르세요." -ForegroundColor Yellow
+  }
 }
 function Set-Secret($name, $value) {
-  & $gh secret set $name --repo $Repo --body $value | Out-Null
-  Write-Host "  [OK] $name 등록" -ForegroundColor Green
+  for ($i = 1; $i -le 4; $i++) {
+    $ErrorActionPreference = "Continue"
+    & $gh secret set $name --repo $Repo --body $value 2>$null | Out-Null
+    $ok = ($LASTEXITCODE -eq 0)
+    $ErrorActionPreference = "Stop"
+    if ($ok) { Write-Host "  [OK] $name 등록" -ForegroundColor Green; return }
+    Write-Host "  GitHub 응답 오류, 5초 후 다시 시도 ($i/4)" -ForegroundColor Yellow
+    Start-Sleep -Seconds 5
+  }
+  Write-Host "  [실패] $name 등록 실패. 잠시 후 스크립트를 다시 실행하세요." -ForegroundColor Red
+  exit 1
 }
 function Already($name) {
   if ($Existing -contains $name) {
@@ -54,14 +67,17 @@ $rk = if ($RestKey) { $RestKey } else { Read-Secret "2) 카카오 REST API 키" 
 if ($Existing -notcontains "KAKAO_REST_API_KEY" -or $RestKey) { Set-Secret "KAKAO_REST_API_KEY" $rk }
 
 # 3) 클라이언트 시크릿 (토큰 발급에 바로 쓰므로 항상 입력)
-$cs = Read-Secret "3) 카카오 클라이언트 시크릿 코드 (REST API 키 수정 화면 > 클라이언트 시크릿 > '카카오 로그인' 줄)"
+$cs = Read-Secret "3) 카카오 클라이언트 시크릿 코드 (REST API 키 수정 화면 > 클라이언트 시크릿 > '카카오 로그인' 줄)" -Optional
 
 # 4) 카카오 로그인 → refresh token
 Write-Host "`n4) 브라우저에서 카카오 로그인 후 '동의하고 계속하기'를 누르세요."
 Write-Host "   '사이트에 연결할 수 없음' 페이지가 뜨면 정상입니다. 그 주소창 URL 전체를 복사해 오세요."
 Start-Process "https://kauth.kakao.com/oauth/authorize?client_id=$rk&redirect_uri=$([uri]::EscapeDataString($RedirectUri))&response_type=code&scope=talk_message&prompt=login"
-$url = (Read-Host "   복사한 URL 붙여넣기").Trim()
-if ($url -notmatch "[?&]code=([^&]+)") { Write-Host "URL에서 code를 찾지 못했습니다." -ForegroundColor Red; exit 1 }
+while ($true) {
+  $url = (Read-Host "   복사한 URL 붙여넣기 (https://localhost:5000/?code=... 형태)").Trim()
+  if ($url -match "[?&]code=([^&]+)") { break }
+  Write-Host "   URL에서 code를 찾지 못했습니다. 브라우저 주소창의 주소 전체를 복사해 다시 붙여넣으세요." -ForegroundColor Yellow
+}
 $body = @{ grant_type = "authorization_code"; client_id = $rk; redirect_uri = $RedirectUri; code = $Matches[1] }
 if ($cs) { $body.client_secret = $cs }
 $tok = Invoke-Kakao "https://kauth.kakao.com/oauth/token" $body
