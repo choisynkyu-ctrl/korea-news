@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import requests
 
-from .config import ALL_GROUP, CHART_RANGE, INDICES, PERIOD_RETURNS, QUARTERS, SCALE, STOCK_GROUPS, TOP_N
+from .config import ALL_GROUP, CHART_RANGE, ETF_GROUP, INDICES, PERIOD_RETURNS, QUARTERS, SCALE, STOCK_GROUPS, TOP_N
 
 CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 NAVER = "https://m.stock.naver.com/api/stock/{code}/{kind}"
@@ -112,7 +112,7 @@ def _index(name: str, symbol: str, group: str, dec: int) -> dict | None:
     return {"name": name, "symbol": symbol, "group": group, "decimals": dec, **_summarize(s, INDEX_POINTS, 2)}
 
 
-_CAP = re.compile(r"(?:([\d,]+)조)?\s*(?:([\d,]+)억)?")
+_CAP = re.compile(r"(?:([\d,.]+)조)?\s*(?:([\d,.]+)억)?")
 
 
 def _cap_eok(text: str) -> int | None:
@@ -120,8 +120,8 @@ def _cap_eok(text: str) -> int | None:
     m = _CAP.fullmatch((text or "").strip())
     if not m or not any(m.groups()):
         return None
-    jo, eok = (int(g.replace(",", "")) if g else 0 for g in m.groups())
-    return jo * 10000 + eok
+    jo, eok = (float(g.replace(",", "")) if g else 0 for g in m.groups())
+    return round(jo * 10000 + eok)
 
 
 def _naver(code: str) -> dict:
@@ -132,7 +132,10 @@ def _naver(code: str) -> dict:
         info["exch"] = (b.get("stockExchangeType") or {}).get("code")   # KS / KQ
         it = requests.get(NAVER.format(code=code, kind="integration"), headers=UA, timeout=15).json()
         total = {x.get("code"): x.get("value") for x in it.get("totalInfos", [])}
-        info["cap"] = _cap_eok(total.get("marketValue"))
+        etf = it.get("etfKeyIndicator") or {}
+        info["cap"] = _cap_eok(etf.get("marketValue") or total.get("marketValue"))
+        info["base"] = total.get("etfBaseIdx")        # ETF 기초지수
+        info["issuer"] = etf.get("issuerName")
     except Exception as e:
         print(f"[market] 네이버 {code} 실패: {e}")
     return info
@@ -147,24 +150,49 @@ def _stock(name: str, code: str) -> dict | None:
         except Exception:
             continue
         if len(s) >= 2:
-            return {"name": nv.get("name") or name, "code": code, "market": "코스피" if ex == "KS" else "코스닥",
-                    "cap": nv.get("cap"), **_summarize(s, STOCK_POINTS, 0)}
+            out = {"name": nv.get("name") or name, "code": code, "market": "코스피" if ex == "KS" else "코스닥",
+                   "cap": nv.get("cap"), **_summarize(s, STOCK_POINTS, 0)}
+            if nv.get("base"):
+                out["base"] = nv["base"]
+            return out
     print(f"[market] {name}({code}) 시세 없음")
     return None
+
+
+_NOISE = re.compile(r"net total return|total return|price return|index|지수|(?<![a-z])(?:tr|pr)(?![a-z])|[\s\-_()]")
+
+
+def _same_key(item: tuple, q: dict) -> str | None:
+    """같은 상품으로 볼 키: config의 세 번째 값, 없으면 기초지수 이름을 정리한 것 (예: 'S&P 500 Total Return Index' → 's&p500')."""
+    if len(item) > 2:
+        return item[2]
+    return _NOISE.sub("", q["base"].lower()) if q.get("base") else None
 
 
 def fetch_market() -> dict:
     with ThreadPoolExecutor(max_workers=8) as pool:
         indices = [q for q in pool.map(lambda a: _index(*a), INDICES) if q]
-        codes = {code: name for items in STOCK_GROUPS.values() for name, code in items}
+        codes = {it[1]: it[0] for items in STOCK_GROUPS.values() for it in items}
         quotes = dict(zip(codes, pool.map(lambda c: _stock(codes[c], c), codes)))
+    stock_codes = [it[1] for g, items in STOCK_GROUPS.items() if g != ETF_GROUP for it in items]
     groups = []
     for gname, items in STOCK_GROUPS.items():
-        pool_codes = codes if gname == ALL_GROUP else [c for _, c in items]
-        qs = [quotes[c] for c in pool_codes if quotes.get(c)]
+        if gname == ALL_GROUP:
+            items = [(codes[c], c) for c in dict.fromkeys(stock_codes)]
+        cand = [(it, quotes[it[1]]) for it in items if quotes.get(it[1])]
         # 시가총액 큰 순 (시총을 못 받은 종목은 config 순서대로 뒤에)
-        qs = sorted(qs, key=lambda q: -(q["cap"] or 0))[:TOP_N]
-        groups.append({"name": gname, "stocks": qs})
+        cand.sort(key=lambda t: -(t[1]["cap"] or 0))
+        qs, seen = [], set()
+        for it, q in cand:
+            key = _same_key(it, q) if gname == ETF_GROUP else None
+            if key and key in seen:
+                continue                     # 같은 지수 상품 중 더 작은 것 → 건너뜀
+            seen.add(key)
+            qs.append(q)
+        g = {"name": gname, "stocks": qs[:TOP_N]}
+        if gname == ETF_GROUP:
+            g["note"] = "같은 지수를 따르는 ETF(운용사만 다른 상품)는 시가총액이 가장 큰 것만 표시합니다."
+        groups.append(g)
     print(f"[market] 지수 {len(indices)}개, 종목 {sum(1 for q in quotes.values() if q)}/{len(codes)}개")
     return {"indices": indices, "groups": groups}
 

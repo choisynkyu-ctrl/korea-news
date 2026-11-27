@@ -79,6 +79,7 @@ th:first-child,td:first-child{position:sticky;left:0;background:var(--card);z-in
 .tabs button{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:999px;padding:6px 14px;cursor:pointer}
 .tabs button[aria-pressed=true]{background:var(--accent);color:var(--bg);border-color:var(--accent)}
 .empty{color:var(--muted);font-size:14px}
+.group .note{margin:8px 2px 0;font-size:12px;color:var(--muted)}
 td.sp{width:150px;padding-top:4px;padding-bottom:4px}
 td.sp .spark{margin:0}td.sp .spark svg{height:28px}td.sp .tip{display:none}
 .filters{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px}
@@ -266,7 +267,8 @@ def _groups_html(m: dict) -> str:
         for i, g in enumerate(groups)
     )
     panels = "".join(
-        f'<div class="group" data-g="{i}"{"" if i == 0 else " hidden"}>{_stocks_table(g["stocks"], g["name"] + " 시가총액 상위")}</div>'
+        f'<div class="group" data-g="{i}"{"" if i == 0 else " hidden"}>{_stocks_table(g["stocks"], g["name"] + " 시가총액 상위")}'
+        + (f'<p class="note">{escape(g["note"])}</p>' if g.get("note") else "") + "</div>"
         for i, g in enumerate(groups)
     )
     return f"""<h2 class="sec">업종별 TOP {max(len(g['stocks']) for g in groups)}<small>시가총액 순 · 버튼으로 업종 선택 · 머리글을 누르면 정렬</small></h2>
