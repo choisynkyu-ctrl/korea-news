@@ -34,8 +34,10 @@ h1{font-size:30px;line-height:1.25;margin:6px 0 10px;letter-spacing:-.02em}
 .digest .row{display:grid;grid-template-columns:64px 1fr;gap:12px;align-items:baseline}
 .digest .lbl{font-size:12px;font-weight:700;text-align:center;background:var(--chip);border-radius:6px;padding:3px 0}
 .digest p{margin:0;font-size:15px}
-.digest .row:first-child p{font-size:17px;font-weight:600}
-.digest .span{font-size:12px;color:var(--muted);margin-left:6px;white-space:nowrap}
+.digest .lines{display:grid;gap:4px}
+.digest .kind{display:inline-block;font-size:11px;font-weight:700;color:var(--muted);border:1px solid var(--line);border-radius:5px;padding:0 6px;margin-right:8px;vertical-align:2px}
+.digest .row:first-child p{font-size:16px;font-weight:600}
+.digest .span{font-size:12px;color:var(--muted)}
 nav.days{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
 nav.days a{font-size:13px;color:var(--muted);text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:4px 12px}
 nav.days a:hover{color:var(--text);border-color:var(--muted)}
@@ -282,19 +284,24 @@ def _card(s: dict) -> str:
 
 
 def _digest_html(data: dict) -> str:
-    rows = [("일간", data.get("headline_of_day", ""), "")]
+    """일간·주간·월간 × (뉴스, 증시) 두 줄씩. 예전 데이터는 있는 줄만 보인다."""
+    rows = [("일간", data.get("headline_of_day", ""), data.get("market_headline", ""), "")]
     dg = data.get("digest") or {}
     for key, label, span in (("weekly", "주간", 7), ("monthly", "월간", 30)):
         if key in dg:
             n = dg[key]["days"]
             note = f"최근 {span}일" + (f" 중 {n}일치" if n < span else "")
-            rows.append((label, dg[key]["text"], note))
-    body = "".join(
-        f'<div class="row"><span class="lbl">{lbl}</span><p>{escape(text)}'
-        + (f'<span class="span">{note}</span>' if note else "") + "</p></div>"
-        for lbl, text, note in rows if text
-    )
-    return f'<section class="digest" aria-label="뉴스 흐름 요약">{body}</section>'
+            rows.append((label, dg[key].get("news") or dg[key].get("text", ""), dg[key].get("market", ""), note))
+    body = ""
+    for lbl, news, market, note in rows:
+        lines = "".join(
+            f'<p><span class="kind">{kind}</span>{escape(text)}</p>'
+            for kind, text in (("뉴스", news), ("증시", market)) if text
+        )
+        if lines:
+            span = f'<span class="span">{note}</span>' if note else ""
+            body += f'<div class="row"><span class="lbl">{lbl}</span><div class="lines">{lines}{span}</div></div>'
+    return f'<section class="digest" aria-label="뉴스·증시 흐름 요약">{body}</section>'
 
 
 def render_page(data: dict, d: date, root: str, all_dates: list[date]) -> str:

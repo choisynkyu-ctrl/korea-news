@@ -27,11 +27,12 @@ PROMPT = """당신은 경제에 밝은 국내 뉴스 에디터입니다.
 - summary: 핵심 사실 2~3문장. 후보 목록에 있는 정보만 사용하고, 없는 수치나 사실을 지어내지 마세요.
 - why_it_matters: 이 뉴스가 왜 중요한지, 생활·경제·투자에 주는 의미 한 문장
 - related: 이 뉴스와 직접 관련된 업종이나 상장 종목 이름 0~3개 (예: ["반도체", "삼성전자"]). 관련이 뚜렷하지 않으면 빈 배열.
-- headline_of_day: 오늘 국내 뉴스 흐름을 한 문장으로 요약
+- headline_of_day: 오늘 국내 뉴스(정치·경제·사회 전반) 흐름을 한 문장으로 요약. 증시 이야기는 되도록 빼고 market_headline에 씁니다.
+- market_headline: 오늘 증시 흐름을 한 문장으로 요약 (코스피·해외 증시·환율, 눈에 띄는 국내 업종·종목). 숫자는 아래 시세에 있는 것만 씁니다.
 - market_comment: 아래 시세 숫자와 기사 후보를 바탕으로 한 시황 2~3문장. 전일 움직임을 중심으로, 필요하면 1개월·분기 흐름과 해외 증시를 곁들입니다. 숫자는 아래 시세에 있는 것만 쓰고, 원인은 기사에 근거가 있을 때만 언급합니다. 투자 권유 표현은 쓰지 않습니다.
 
 아래 형식의 JSON만 출력하세요:
-{{"headline_of_day": "...", "market_comment": "...", "stories": [{{"rank": 1, "category": "...", "title": "...", "summary": "...", "why_it_matters": "...", "related": ["..."], "source_ids": [0, 5]}}]}}
+{{"headline_of_day": "...", "market_headline": "...", "market_comment": "...", "stories": [{{"rank": 1, "category": "...", "title": "...", "summary": "...", "why_it_matters": "...", "related": ["..."], "source_ids": [0, 5]}}]}}
 
 오늘 날짜(KST): {date}
 
@@ -161,6 +162,7 @@ def curate(items: list[dict], date_label: str, market: str) -> dict:
         print(f"[curate] {i}위 (Gemini {s['llm_rank']}위, 언론사 {s['outlets']}곳, 점수 {s['score']}) {s['title']}")
     return {
         "headline_of_day": data.get("headline_of_day", ""),
+        "market_headline": data.get("market_headline", ""),
         "market_comment": data.get("market_comment", ""),
         "stories": stories,
     }
