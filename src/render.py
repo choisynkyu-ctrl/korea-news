@@ -57,7 +57,10 @@ h2.sec small{font-size:12px;font-weight:500;color:var(--muted)}
 .spark .tip:empty{display:none}
 .spark .guide{stroke:var(--muted);stroke-width:1;opacity:0}
 .spark:hover .guide{opacity:.5}
-.tile .foot{display:flex;justify-content:space-between;gap:6px;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}
+.tile .foot span{white-space:nowrap}
+.tile .foot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:0 6px;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}
+.qs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin-top:6px;padding-top:6px;border-top:1px solid var(--line);text-align:center;font-variant-numeric:tabular-nums}
+.qs span{display:block;font-size:10px;color:var(--muted)}.qs b{display:block;font-size:11px;letter-spacing:-.02em;font-weight:600;white-space:nowrap}
 .comment{margin:12px 0 0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:grid;grid-template-columns:52px 1fr;gap:12px;align-items:baseline}
 .comment .lbl{font-size:12px;font-weight:700;text-align:center;background:var(--chip);border-radius:6px;padding:3px 0}
 .comment p{margin:0;font-size:15px}
@@ -196,6 +199,24 @@ def _cap(eok) -> str:
     return f"{eok / 10000:,.1f}조" if eok >= 10000 else f"{eok:,}억"
 
 
+def _qlabel(x: dict) -> str:
+    return x["label"] + ("*" if x.get("ongoing") else "")
+
+
+def _qs(q: dict) -> str:
+    """분기별 수익률 4칸 (예전 데이터에는 없음)."""
+    qs = q.get("quarters") or []
+    if not qs:
+        return ""
+    def cell(x: dict) -> str:
+        v = x["pct"]
+        cls, txt = ("flat", "-") if v is None else (_dir(v), f"{v:+.0f}%" if abs(v) >= 10 else f"{v:+.1f}%")
+        return f'<div><span>{_qlabel(x)}</span><b class="{cls}">{txt}</b></div>'
+
+    cells = "".join(cell(x) for x in qs)
+    return f'<div class="qs" aria-label="분기별 수익률">{cells}</div>'
+
+
 def _tile(q: dict) -> str:
     dec = q.get("decimals", 2)
     m1 = q.get("m1_pct", q.get("period_pct"))
@@ -205,7 +226,8 @@ def _tile(q: dict) -> str:
   <span class="px">{_num(q['price'], dec)}</span>
   <span class="chg {_dir(q['change'])}">{_arrow(q['change'])} {_num(abs(q['change']), dec)} ({q['change_pct']:+.2f}%)</span>
   {_spark(q['spark'], dec, _dir(_trend(q)))}
-  <div class="foot">{_ret(m1, '1개월')}{_ret(q.get('q1_pct'), '분기')}</div>
+  <div class="foot">{_ret(m1, '1개월')}{_ret(q.get('y1_pct'), '1년')}</div>
+  {_qs(q)}
 </div>"""
 
 
@@ -215,19 +237,20 @@ def _stocks_table(stocks: list[dict], caption: str) -> str:
     num = lambda v: "" if v is None else v
     rows = "".join(
         f'<tr data-rank="{i}" data-name="{escape(s["name"])}" data-price="{s["price"]}" data-chg="{s["change_pct"]}" '
-        f'data-m1="{num(s.get("m1_pct", s.get("period_pct")))}" data-q1="{num(s.get("q1_pct"))}" data-cap="{s.get("cap") or 0}">'
+        f'data-m1="{num(s.get("m1_pct", s.get("period_pct")))}" {"".join(f'data-q{j}="{num(x["pct"])}" ' for j, x in enumerate(s.get("quarters") or []))}data-cap="{s.get("cap") or 0}">'
         f'<td><span class="no">{i}</span>{escape(s["name"])}<span class="code">{escape(s["code"])}</span></td>'
         f'<td>{_num(s["price"], 0)}</td>'
         f'<td class="{_dir(s["change"])}">{_arrow(s["change"])} {abs(s["change_pct"]):.2f}%</td>'
         f'<td>{_ret(s.get("m1_pct", s.get("period_pct")))}</td>'
-        f'<td>{_ret(s.get("q1_pct"))}</td>'
+        + "".join(f'<td>{_ret(x["pct"])}</td>' for x in (s.get("quarters") or [])) +
         f'<td>{_cap(s.get("cap"))}</td>'
         f'<td class="sp">{_spark(s["spark"], 0, _dir(_trend(s)))}</td></tr>'
         for i, s in enumerate(stocks, start=1)
     )
+    qhead = "".join(f'<th data-k="q{j}">{_qlabel(x)}</th>' for j, x in enumerate(stocks[0].get("quarters") or []))
     return f"""<div class="tablewrap"><table class="sortable">
 <caption hidden>{escape(caption)}</caption>
-<thead><tr><th data-k="rank">종목</th><th data-k="price">종가(원)</th><th data-k="chg">전일 대비</th><th data-k="m1">1개월</th><th data-k="q1">분기</th><th data-k="cap">시가총액</th><th>1년 추이</th></tr></thead>
+<thead><tr><th data-k="rank">종목</th><th data-k="price">종가(원)</th><th data-k="chg">전일 대비</th><th data-k="m1">1개월</th>{qhead}<th data-k="cap">시가총액</th><th>1년 추이</th></tr></thead>
 <tbody>{rows}</tbody></table></div>"""
 
 
@@ -257,7 +280,7 @@ def _market_html(data: dict) -> str:
     tiles = "".join(_tile(q) for q in m.get("indices", []))
     comment = data.get("market_comment", "")
     comment_html = f'<div class="comment"><span class="lbl">시황</span><p>{escape(comment)}</p></div>' if comment else ""
-    return f"""<h2 class="sec">시장<small>전일 종가 기준 · 해외는 최근 마감 · 그래프는 최근 1년</small></h2>
+    return f"""<h2 class="sec">시장<small>전일 종가 기준 · 해외는 최근 마감 · 그래프는 최근 1년 · 분기별은 직전 분기 말 대비, *는 진행 중인 분기</small></h2>
 <div class="tiles">{tiles}</div>
 {comment_html}
 {_groups_html(m)}"""

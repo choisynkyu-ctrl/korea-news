@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import requests
 
-from .config import ALL_GROUP, CHART_RANGE, INDICES, PERIOD_RETURNS, SCALE, STOCK_GROUPS, TOP_N
+from .config import ALL_GROUP, CHART_RANGE, INDICES, PERIOD_RETURNS, QUARTERS, SCALE, STOCK_GROUPS, TOP_N
 
 CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 NAVER = "https://m.stock.naver.com/api/stock/{code}/{kind}"
@@ -61,21 +61,43 @@ def _pct(a: float, b: float) -> float:
     return round((a / b - 1) * 100, 2)
 
 
+def _close_on(s: list[tuple[str, float]], d: date) -> float | None:
+    """d 당일 또는 그 이전 마지막 종가."""
+    base = [v for x, v in s if x <= d.isoformat()]
+    return base[-1] if base else None
+
+
+def _quarters(s: list[tuple[str, float]], last_d: date) -> list[dict]:
+    """진행 중인 분기를 포함한 최근 QUARTERS개 분기의 수익률 (직전 분기 말 종가 대비 분기 말/현재 종가)."""
+    y, q = last_d.year, (last_d.month - 1) // 3 + 1
+    out = []
+    for _ in range(QUARTERS):
+        start = date(y, 3 * q - 2, 1) - timedelta(days=1)                 # 직전 분기 마지막 날
+        end = date(y + (q == 4), (3 * q) % 12 + 1, 1) - timedelta(days=1)  # 이 분기 마지막 날
+        a, b = _close_on(s, start), _close_on(s, min(end, last_d))
+        ok = a is not None and b is not None and s[0][0] <= start.isoformat()
+        out.append({"label": f"{y % 100}.{q}Q", "pct": _pct(b, a) if ok else None, "ongoing": end > last_d})
+        y, q = (y, q - 1) if q > 1 else (y - 1, 4)
+    return out[::-1]
+
+
 def _summarize(s: list[tuple[str, float]], points: int, decimals: int) -> dict:
     (d, last), (_, prev) = s[-1], s[-2]
     last_d = date.fromisoformat(d)
+    year_ago = (last_d - timedelta(days=365)).isoformat()
+    recent = [p for p in s if p[0] >= year_ago] or s        # 그래프·1년 수익률은 최근 1년
     out = {
         "date": d,
         "price": round(last, decimals),
         "change": round(last - prev, decimals),
         "change_pct": _pct(last, prev),
-        "y1_pct": _pct(last, s[0][1]),
+        "y1_pct": _pct(last, (_close_on(s, date.fromisoformat(year_ago)) or recent[0][1])),
     }
     for key, _, days in PERIOD_RETURNS:
-        cutoff = (last_d - timedelta(days=days)).isoformat()
-        base = [v for x, v in s if x <= cutoff]
-        out[f"{key}_pct"] = _pct(last, base[-1]) if base else None
-    out["spark"] = [[x, round(v, decimals)] for x, v in _thin(s, points)]
+        base = _close_on(s, last_d - timedelta(days=days))
+        out[f"{key}_pct"] = _pct(last, base) if base else None
+    out["quarters"] = _quarters(s, last_d)
+    out["spark"] = [[x, round(v, decimals)] for x, v in _thin(recent, points)]
     return out
 
 
@@ -154,7 +176,8 @@ def _fmt_pct(v) -> str:
 def market_text(m: dict) -> str:
     """Gemini 프롬프트에 넣을 시세 요약."""
     lines = [f"- {q['name']}: {q['price']:,.2f} (전일 대비 {q['change_pct']:+.2f}%, 1개월 {_fmt_pct(q.get('m1_pct'))}, "
-             f"분기 {_fmt_pct(q.get('q1_pct'))}, 1년 {_fmt_pct(q.get('y1_pct'))}, 기준일 {q['date']})"
+             f"분기별 " + " ".join(f"{x['label']}{'(진행 중)' if x['ongoing'] else ''} {_fmt_pct(x['pct'])}" for x in q.get('quarters', []))
+             + f", 1년 {_fmt_pct(q.get('y1_pct'))}, 기준일 {q['date']})"
              for q in m.get("indices", [])]
     seen = set()
     for g in m.get("groups", []):
