@@ -68,15 +68,15 @@ def _close_on(s: list[tuple[str, float]], d: date) -> float | None:
 
 
 def _quarters(s: list[tuple[str, float]], last_d: date) -> list[dict]:
-    """진행 중인 분기를 포함한 최근 QUARTERS개 분기의 수익률 (직전 분기 말 종가 대비 분기 말/현재 종가)."""
+    """진행 중인 분기를 포함한 최근 QUARTERS개 분기 각각의 시작 시점(직전 분기 말 종가) 대비 현재 종가 등락률."""
     y, q = last_d.year, (last_d.month - 1) // 3 + 1
     out = []
     for _ in range(QUARTERS):
         start = date(y, 3 * q - 2, 1) - timedelta(days=1)                 # 직전 분기 마지막 날
         end = date(y + (q == 4), (3 * q) % 12 + 1, 1) - timedelta(days=1)  # 이 분기 마지막 날
-        a, b = _close_on(s, start), _close_on(s, min(end, last_d))
-        ok = a is not None and b is not None and s[0][0] <= start.isoformat()
-        out.append({"label": f"{y % 100}.{q}Q", "pct": _pct(b, a) if ok else None, "ongoing": end > last_d})
+        a = _close_on(s, start)
+        ok = a is not None and s[0][0] <= start.isoformat()
+        out.append({"label": f"{y % 100}.{q}Q", "pct": _pct(s[-1][1], a) if ok else None, "ongoing": end > last_d})
         y, q = (y, q - 1) if q > 1 else (y - 1, 4)
     return out[::-1]
 
@@ -176,7 +176,7 @@ def _fmt_pct(v) -> str:
 def market_text(m: dict) -> str:
     """Gemini 프롬프트에 넣을 시세 요약."""
     lines = [f"- {q['name']}: {q['price']:,.2f} (전일 대비 {q['change_pct']:+.2f}%, 1개월 {_fmt_pct(q.get('m1_pct'))}, "
-             f"분기별 " + " ".join(f"{x['label']}{'(진행 중)' if x['ongoing'] else ''} {_fmt_pct(x['pct'])}" for x in q.get('quarters', []))
+             f"분기 시작 대비 " + " ".join(f"{x['label']}{'(진행 중)' if x['ongoing'] else ''} {_fmt_pct(x['pct'])}" for x in q.get('quarters', []))
              + f", 1년 {_fmt_pct(q.get('y1_pct'))}, 기준일 {q['date']})"
              for q in m.get("indices", [])]
     seen = set()

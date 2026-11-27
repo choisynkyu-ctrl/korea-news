@@ -37,7 +37,8 @@ h1{font-size:30px;line-height:1.25;margin:6px 0 10px;letter-spacing:-.02em}
 .digest .lines{display:grid;gap:4px}
 .digest .kind{display:inline-block;font-size:11px;font-weight:700;color:var(--muted);border:1px solid var(--line);border-radius:5px;padding:0 6px;margin-right:8px;vertical-align:2px}
 .digest .row:first-child p{font-size:16px;font-weight:600}
-.digest .span{font-size:12px;color:var(--muted)}
+.digest .span{font-size:12px;color:var(--muted);margin-left:6px;white-space:nowrap}
+.digest.news{margin:0 0 16px}
 nav.days{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
 nav.days a{font-size:13px;color:var(--muted);text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:4px 12px}
 nav.days a:hover{color:var(--text);border-color:var(--muted)}
@@ -61,7 +62,7 @@ h2.sec small{font-size:12px;font-weight:500;color:var(--muted)}
 .tile .foot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:0 6px;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}
 .qs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin-top:6px;padding-top:6px;border-top:1px solid var(--line);text-align:center;font-variant-numeric:tabular-nums}
 .qs span{display:block;font-size:10px;color:var(--muted)}.qs b{display:block;font-size:11px;letter-spacing:-.02em;font-weight:600;white-space:nowrap}
-.comment{margin:12px 0 0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:grid;grid-template-columns:52px 1fr;gap:12px;align-items:baseline}
+.comment{margin:0 0 12px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:grid;grid-template-columns:52px 1fr;gap:12px;align-items:baseline}
 .comment .lbl{font-size:12px;font-weight:700;text-align:center;background:var(--chip);border-radius:6px;padding:3px 0}
 .comment p{margin:0;font-size:15px}
 .tablewrap{margin-top:12px;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow-x:auto}
@@ -280,9 +281,9 @@ def _market_html(data: dict) -> str:
     tiles = "".join(_tile(q) for q in m.get("indices", []))
     comment = data.get("market_comment", "")
     comment_html = f'<div class="comment"><span class="lbl">시황</span><p>{escape(comment)}</p></div>' if comment else ""
-    return f"""<h2 class="sec">시장<small>전일 종가 기준 · 해외는 최근 마감 · 그래프는 최근 1년 · 분기별은 직전 분기 말 대비, *는 진행 중인 분기</small></h2>
-<div class="tiles">{tiles}</div>
+    return f"""<h2 class="sec">시장<small>전일 종가 기준 · 해외는 최근 마감 · 그래프는 최근 1년 · 분기별은 각 분기 시작 시점(직전 분기 말) 대비 현재 종가, *는 진행 중인 분기</small></h2>
 {comment_html}
+<div class="tiles">{tiles}</div>
 {_groups_html(m)}"""
 
 
@@ -306,25 +307,26 @@ def _card(s: dict) -> str:
 </article>"""
 
 
-def _digest_html(data: dict) -> str:
-    """일간·주간·월간 × (뉴스, 증시) 두 줄씩. 예전 데이터는 있는 줄만 보인다."""
-    rows = [("일간", data.get("headline_of_day", ""), data.get("market_headline", ""), "")]
+def _digest_html(data: dict, kind: str) -> str:
+    """일간·주간·월간 흐름 한 줄씩. kind = "market"(헤더) 또는 "news"(주요 뉴스 위)."""
+    today = data.get("market_headline" if kind == "market" else "headline_of_day", "")
+    rows = [("일간", today, "")]
     dg = data.get("digest") or {}
     for key, label, span in (("weekly", "주간", 7), ("monthly", "월간", 30)):
         if key in dg:
             n = dg[key]["days"]
             note = f"최근 {span}일" + (f" 중 {n}일치" if n < span else "")
-            rows.append((label, dg[key].get("news") or dg[key].get("text", ""), dg[key].get("market", ""), note))
-    body = ""
-    for lbl, news, market, note in rows:
-        lines = "".join(
-            f'<p><span class="kind">{kind}</span>{escape(text)}</p>'
-            for kind, text in (("뉴스", news), ("증시", market)) if text
-        )
-        if lines:
-            span = f'<span class="span">{note}</span>' if note else ""
-            body += f'<div class="row"><span class="lbl">{lbl}</span><div class="lines">{lines}{span}</div></div>'
-    return f'<section class="digest" aria-label="뉴스·증시 흐름 요약">{body}</section>'
+            text = dg[key].get(kind) or (dg[key].get("text", "") if kind == "news" else "")
+            rows.append((label, text, note))
+    body = "".join(
+        f'<div class="row"><span class="lbl">{lbl}</span><p>{escape(text)}'
+        + (f'<span class="span">{note}</span>' if note else "") + "</p></div>"
+        for lbl, text, note in rows if text
+    )
+    if not body:
+        return ""
+    name = "증시 흐름 요약" if kind == "market" else "뉴스 흐름 요약"
+    return f'<section class="digest {kind}" aria-label="{name}">{body}</section>'
 
 
 def render_page(data: dict, d: date, root: str, all_dates: list[date]) -> str:
@@ -355,11 +357,12 @@ def render_page(data: dict, d: date, root: str, all_dates: list[date]) -> str:
 <header>
   <div class="eyebrow">Korea Briefing · {_date_label(d)}</div>
   <h1>오늘의 국내 뉴스 · 증시</h1>
-  {_digest_html(data)}
+  {_digest_html(data, "market")}
   {days_html}
 </header>
 {_market_html(data)}
 <h2 class="sec">주요 뉴스 TOP {len(data['stories'])}</h2>
+{_digest_html(data, "news")}
 <div class="filters">{filters}</div>
 <main class="grid">
 {cards}
