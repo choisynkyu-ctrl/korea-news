@@ -206,7 +206,7 @@ def fetch_market() -> dict:
     held = [quotes[c] for _, c in HOLDINGS if quotes.get(c)]
     if held:
         groups.append({"name": HOLDINGS_GROUP, "stocks": held,
-                       "note": "공개 페이지라 수량·매수가는 표시하지 않고 등락률만 보여줍니다."})
+                       "note": "평가손익·수익률·배당금은 비밀번호를 넣어야 보입니다 (이 기기의 브라우저 안에서만 풀림)."})
     print(f"[market] 지수 {len(indices)}개, 종목 {sum(1 for q in quotes.values() if q)}/{len(codes)}개")
     return {"indices": indices, "groups": groups}
 

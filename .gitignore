@@ -4,3 +4,4 @@ __pycache__/
 .env
 .claude/
 Dashboard_미리보기.html
+scripts/holdings.local.json

@@ -77,9 +77,28 @@ def build_message(data: dict, d: date) -> str:
     if nums:
         closed = (data.get("market") or {}).get("closed")
         lines.append(("(새 거래 없음) " if closed == "all" else "") + nums)
+    mine = _holdings_line(data)
+    if mine:
+        lines.append(mine)
     if data.get("market_headline") and (data.get("market") or {}).get("closed") != "all":
         lines.append(data["market_headline"])
     return "\n".join(lines)
+
+
+def _holdings_line(data: dict) -> str:
+    """내 보유 수익 한 줄 (카톡은 나만 보므로 평문). 암호문을 HOLDINGS_PASSWORD로 풀어서 만든다."""
+    enc, pw = data.get("holdings_enc"), os.environ.get("HOLDINGS_PASSWORD")
+    if not enc or not pw:
+        return ""
+    try:
+        from .holdings import decrypt
+        t = decrypt(enc, pw)["total"]
+    except Exception as e:
+        print(f"[kakao] 보유 수익 해독 실패: {e}")
+        return ""
+    a = lambda v: "▲" if v > 0 else "▼" if v < 0 else ""
+    return (f"내 보유 {a(t['pnl'])}{abs(t['pnl']) / 10000:,.0f}만원 ({t['ret']:+.1f}%) · "
+            f"오늘 {a(t['day'])}{abs(t['day']) / 10000:,.1f}만원")
 
 
 def notify_failure(d: date, run_url: str) -> None:

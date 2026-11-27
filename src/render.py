@@ -4,7 +4,7 @@ from collections import Counter
 from datetime import date
 from html import escape
 
-from .config import ARCHIVE_DIR, CATEGORIES, DATA_DIR, DOCS
+from .config import ARCHIVE_DIR, CATEGORIES, DATA_DIR, DOCS, HOLDINGS_GROUP
 
 WEEKDAYS = "월화수목금토일"
 
@@ -105,6 +105,37 @@ h3{font-size:18px;line-height:1.4;margin:0;letter-spacing:-.01em}
 .sources{display:flex;gap:6px;flex-wrap:wrap;margin-top:auto;padding-top:6px}
 .sources a{font-size:12px;color:var(--muted);background:var(--chip);border-radius:6px;padding:3px 8px;text-decoration:none}
 .sources a:hover{color:var(--text)}
+/* 보유 수익 (비밀번호로 풀림) */
+.pf{margin:12px 0 0}
+.pf-lock{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.pf [hidden]{display:none!important}
+.pf-lock .t{font-weight:700;font-size:15px}.pf-lock .t small{font-weight:500;color:var(--muted);font-size:12px;margin-left:6px}
+.pf-lock .f{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-left:auto}
+.pf-lock input[type=password]{font:inherit;font-size:14px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);width:150px}
+.pf-lock label{font-size:12px;color:var(--muted);display:flex;gap:4px;align-items:center}
+.pf button{font:inherit;font-size:13px;border:1px solid var(--accent);background:var(--accent);color:var(--bg);border-radius:999px;padding:6px 14px;cursor:pointer}
+.pf button.ghost{background:transparent;color:var(--muted);border-color:var(--line);padding:3px 10px;font-size:12px}
+.pf-lock .err{flex-basis:100%;font-size:12px;color:var(--up)}.pf-lock .err:empty{display:none}
+.pf-sum{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.kpi .k,.pf-item .k{font-size:12px;font-weight:600;color:var(--muted)}
+.kpi .v{font-size:28px;font-weight:800;letter-spacing:-.02em;line-height:1.25;font-variant-numeric:tabular-nums;white-space:nowrap}
+.kpi .s{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.kpi .s b{font-weight:600}
+.pf-items{display:grid;gap:10px;margin-top:12px}
+.pf-item{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.pf-item .hd{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px}
+.pf-item .hd b{font-size:15px}.pf-item .hd .code{font-size:11px;color:var(--muted)}
+.pf-item .hd .q{font-size:12px;color:var(--muted);margin-left:auto;font-variant-numeric:tabular-nums}
+.pf-item .nums{display:grid;grid-template-columns:1.2fr .8fr 1.4fr;gap:10px;margin-top:8px}
+.pf-item .nums>div{display:flex;flex-direction:column;min-width:0}
+.pf-item .v{font-size:20px;font-weight:800;letter-spacing:-.01em;font-variant-numeric:tabular-nums;white-space:nowrap}
+.pf-item .s{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.pf-bar{position:relative;height:6px;border-radius:3px;background:var(--chip);margin-top:10px}
+.pf-bar i{position:absolute;top:0;bottom:0;border-radius:3px}
+.pf-bar::after{content:"";position:absolute;left:50%;top:-3px;bottom:-3px;width:1px;background:var(--muted);opacity:.5}
+.pf-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;font-size:12px;color:var(--muted)}
+@media (max-width:640px){.pf-sum{grid-template-columns:1fr;gap:8px}.kpi .v{font-size:24px}.pf-item .nums{grid-template-columns:1fr 1fr}.pf-item .nums>div:last-child{grid-column:1/-1}.pf-lock .f{margin-left:0}.pf-item .hd .q{margin-left:0;flex-basis:100%}}
 footer{margin-top:40px;font-size:12px;color:var(--muted)}
 @media (max-width:520px){h1{font-size:24px}.grid{grid-template-columns:1fr}.card.top h3{font-size:20px}
 .digest .row,.comment{grid-template-columns:1fr;gap:4px}.digest .lbl,.comment .lbl{justify-self:start;padding:2px 8px}
@@ -140,6 +171,49 @@ const tabs=document.querySelectorAll('.tabs button');
 function showGroup(g){tabs.forEach(x=>x.setAttribute('aria-pressed',x.dataset.g===g));document.querySelectorAll('.group').forEach(p=>{p.hidden=p.dataset.g!==g});}
 tabs.forEach(b=>b.addEventListener('click',()=>{showGroup(b.dataset.g);try{localStorage.setItem('kb-group',b.textContent)}catch(e){}}));
 try{const saved=localStorage.getItem('kb-group');const t=[...tabs].find(x=>x.textContent===saved);if(t)showGroup(t.dataset.g)}catch(e){}
+// 보유 수익: 암호문을 비밀번호로 풀어 이 브라우저 안에서만 그린다 (PBKDF2-SHA256 → AES-GCM)
+document.querySelectorAll('.pf').forEach(pf=>{
+  const enc=JSON.parse(pf.dataset.enc),form=pf.querySelector('form'),body=pf.querySelector('.pf-body'),err=pf.querySelector('.err'),KEY='kb-pf';
+  const b64=t=>Uint8Array.from(atob(t),c=>c.charCodeAt(0));
+  const won=v=>Math.round(v).toLocaleString('ko-KR')+'원';
+  const sgn=v=>v>0?'up':v<0?'down':'flat',arr=v=>v>0?'▲ ':v<0?'▼ ':'';
+  const pct=v=>(v>0?'+':'')+v.toFixed(2)+'%';
+  const md=d=>+d.slice(5,7)+'/'+(+d.slice(8));
+  const esc=t=>String(t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const freq=n=>n>=10?'월 지급':n>=3?'분기 지급':n?'연 '+n+'회':'';
+  async function open(pw){
+    const k=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveKey']);
+    const key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:b64(enc.salt),iterations:enc.iter,hash:'SHA-256'},k,{name:'AES-GCM',length:256},false,['decrypt']);
+    return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:b64(enc.iv)},key,b64(enc.ct))));
+  }
+  function draw(p){
+    const t=p.total,mx=Math.max(...p.rows.map(r=>Math.abs(r.ret)),1);
+    let h='<div class="pf-sum">'
+      +'<div class="kpi"><span class="k">평가손익</span><span class="v '+sgn(t.pnl)+'">'+arr(t.pnl)+won(Math.abs(t.pnl))+'</span><span class="s">평가 <b>'+won(t.value)+'</b> · 매수 '+won(t.cost)+'</span></div>'
+      +'<div class="kpi"><span class="k">수익률</span><span class="v '+sgn(t.ret)+'">'+pct(t.ret)+'</span><span class="s">오늘 <b class="'+sgn(t.day)+'">'+arr(t.day)+won(Math.abs(t.day))+' ('+pct(t.day_pct)+')</b></span></div>'
+      +'<div class="kpi"><span class="k">배당금 (연간)</span><span class="v">'+won(t.div_year)+'</span><span class="s">세후 약 <b>'+won(t.div_after_tax)+'</b> · 월 평균 '+won(t.div_after_tax/12)+'</span></div>'
+      +'</div><div class="pf-items">';
+    p.rows.forEach(r=>{
+      const w=Math.abs(r.ret)/mx*50,dl=r.div_last;
+      h+='<div class="pf-item"><div class="hd"><b>'+esc(r.name)+'</b><span class="code">'+esc(r.code)+'</span><span class="q">'+r.qty.toLocaleString('ko-KR')+'주 · 평단 '+won(r.avg)+' → 현재 '+won(r.price)+'</span></div>'
+        +'<div class="nums"><div><span class="k">평가손익</span><span class="v '+sgn(r.pnl)+'">'+arr(r.pnl)+won(Math.abs(r.pnl))+'</span><span class="s">평가 '+won(r.value)+'</span></div>'
+        +'<div><span class="k">수익률</span><span class="v '+sgn(r.ret)+'">'+pct(r.ret)+'</span><span class="s">오늘 <span class="'+sgn(r.day)+'">'+pct(r.day_pct)+'</span></span></div>'
+        +'<div><span class="k">배당금 (연간)</span><span class="v">'+(r.div_year?won(r.div_year):'없음')+'</span><span class="s">'
+        +(dl?freq(r.div_count)+' · 최근 '+md(dl.date)+' 주당 '+won(dl.amount)+' → '+won(dl.total)+' · 매수가 대비 연 '+r.div_yoc.toFixed(1)+'%':'최근 1년 분배금 없음')+'</span></div></div>'
+        +'<div class="pf-bar" role="img" aria-label="수익률 '+pct(r.ret)+'"><i style="background:var(--'+sgn(r.ret)+');'+(r.ret>=0?'left:50%':'right:50%')+';width:'+w.toFixed(1)+'%"></i></div></div>';
+    });
+    h+='</div><div class="pf-foot"><span>'+md(p.date)+' 종가 기준 · 배당금은 최근 12개월 분배금 × 보유 수량 (세전, 세후는 15.4% 제외)</span><button type="button" class="ghost">잠그기</button></div>';
+    body.innerHTML=h;body.hidden=false;form.hidden=true;
+    body.querySelector('.ghost').addEventListener('click',()=>{try{localStorage.removeItem(KEY)}catch(e){}body.hidden=true;body.innerHTML='';form.hidden=false;form.querySelector('input[type=password]').value=''});
+  }
+  form.addEventListener('submit',async e=>{
+    e.preventDefault();const pw=form.querySelector('input[type=password]').value;err.textContent='';
+    try{const p=await open(pw);draw(p);if(form.querySelector('input[type=checkbox]').checked)try{localStorage.setItem(KEY,pw)}catch(e){}}
+    catch(x){err.textContent=window.crypto&&crypto.subtle?'비밀번호가 맞지 않습니다.':'이 브라우저에서는 열 수 없습니다 (https 주소로 열어 주세요).'}
+  });
+  let saved=null;try{saved=localStorage.getItem(KEY)}catch(e){}
+  if(saved)open(saved).then(draw).catch(()=>{try{localStorage.removeItem(KEY)}catch(e){}});
+});
 // 종목 표 정렬
 document.querySelectorAll('table.sortable').forEach(t=>{
   t.querySelectorAll('th[data-k]').forEach((th,ci)=>th.addEventListener('click',()=>{
@@ -262,7 +336,19 @@ def _stocks_table(stocks: list[dict], caption: str) -> str:
 <tbody>{"".join(rows)}</tbody></table></div>"""
 
 
-def _groups_html(m: dict) -> str:
+def _holdings_html(enc: dict | None) -> str:
+    """보유 수익 블록. 암호문만 페이지에 넣고, 숫자는 비밀번호를 넣으면 브라우저가 풀어서 그린다."""
+    if not enc:
+        return ""
+    return f"""<div class="pf" data-enc="{escape(json.dumps(enc))}">
+<form class="pf-lock"><span class="t">내 보유 수익<small>평가손익 · 수익률 · 배당금</small></span>
+<input type="text" name="username" value="korea-briefing" autocomplete="username" hidden>
+<span class="f"><input type="password" name="password" autocomplete="current-password" placeholder="비밀번호" aria-label="비밀번호" required>
+<label><input type="checkbox" checked> 이 기기에서 기억</label><button>열기</button></span><span class="err" role="alert"></span></form>
+<div class="pf-body" hidden></div></div>"""
+
+
+def _groups_html(m: dict, enc: dict | None = None) -> str:
     groups = m.get("groups")
     if not groups and m.get("stocks"):          # 예전 데이터: 관심 종목 한 묶음
         groups = [{"name": "관심 종목", "stocks": m["stocks"]}]
@@ -273,7 +359,9 @@ def _groups_html(m: dict) -> str:
         for i, g in enumerate(groups)
     )
     panels = "".join(
-        f'<div class="group" data-g="{i}"{"" if i == 0 else " hidden"}>{_stocks_table(g["stocks"], g["name"] + " 시가총액 상위")}'
+        f'<div class="group" data-g="{i}"{"" if i == 0 else " hidden"}>'
+        + (_holdings_html(enc) if g["name"] == HOLDINGS_GROUP else "")
+        + f'{_stocks_table(g["stocks"], g["name"] + " 시가총액 상위")}'
         + (f'<p class="note">{escape(g["note"])}</p>' if g.get("note") else "") + "</div>"
         for i, g in enumerate(groups)
     )
@@ -300,7 +388,7 @@ def _market_html(data: dict) -> str:
     return f"""<h2 class="sec">시장<small>{asof} · 그래프는 최근 1년, 점선은 분기 경계 · 그래프에 마우스를 올리거나 누르면 분기 시작 대비 등락률</small></h2>
 {comment_html}
 <div class="tiles">{tiles}</div>
-{_groups_html(m)}"""
+{_groups_html(m, data.get("holdings_enc"))}"""
 
 
 def _card(s: dict) -> str:

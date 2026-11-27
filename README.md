@@ -26,6 +26,9 @@ GitHub Actions (06:20 KST, 간밤 미국 장 마감 후)
    그래프에 마우스를 올리거나 누르면 그 날짜 값과 '분기 시작 → 현재' 등락률
 3. **업종별 TOP 10** (버튼): 시가총액 상위 · 반도체 · 2차전지 · 바이오·제약 · 자동차 · 금융 · 인터넷·게임 · 조선·방산·전력 · ETF · 내 보유
    — 네이버 증권 시가총액 순. ETF는 같은 지수 상품 중 가장 큰 것만 + 보유 ETF 2개 고정
+   — **내 보유** 탭: 평가손익 · 수익률 · 배당금(최근 12개월 분배금 × 수량). 수량·평단가는 저장소에 두지 않고
+     GitHub Secret `HOLDINGS_JSON`에, 결과는 `HOLDINGS_PASSWORD`로 암호화해 페이지에서 비밀번호를 넣어야 보입니다.
+     카톡 메시지에도 총 평가손익 한 줄이 붙습니다.
 4. **주요 뉴스 TOP 10**: 뉴스 흐름 한 줄(일간 · 주간 · 월간) → 분야 필터 → 카드
 5. 주말·휴일에는 "새 거래 없음"으로 표시하고 시황 코멘트를 생략. 실행이 실패하면 카톡으로 실패 알림
 
@@ -37,7 +40,9 @@ GitHub Actions (06:20 KST, 간밤 미국 장 마감 후)
    powershell -ExecutionPolicy Bypass -File scripts\setup_secrets.ps1
    ```
 4. 카카오 앱 → 플랫폼 → Web 사이트 도메인에 `https://<GitHub아이디>.github.io` 가 있는지 확인
-5. Actions → **Daily Korea Briefing** → Run workflow 로 첫 실행
+5. (선택) 보유 수익: `scripts\holdings.local.json`(저장소에 안 올라감)에 수량·평단가를 적고
+   `powershell -ExecutionPolicy Bypass -File scripts\set_holdings_password.ps1`
+6. Actions → **Daily Korea Briefing** → Run workflow 로 첫 실행
 
 ## 로컬 미리보기 (API 키 없이)
 실제 시세와 RSS 헤드라인으로 화면만 그려 봅니다 (Gemini 요약 자리는 안내 문구):

@@ -32,6 +32,8 @@ jobs:
       - name: 뉴스·시세 수집 · 선정 · 대시보드 생성
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          HOLDINGS_JSON: ${{ secrets.HOLDINGS_JSON }}          # 보유 수량·평단가 (저장소에는 없음)
+          HOLDINGS_PASSWORD: ${{ secrets.HOLDINGS_PASSWORD }}  # 보유 수익 암호화 비밀번호
         run: python -m src.main build
 
       - name: 대시보드 커밋 (GitHub Pages 반영)
@@ -51,6 +53,7 @@ jobs:
           KAKAO_CLIENT_SECRET: ${{ secrets.KAKAO_CLIENT_SECRET }}
           KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
           NEW_REFRESH_TOKEN_FILE: ${{ runner.temp }}/kakao_refresh_token
+          HOLDINGS_PASSWORD: ${{ secrets.HOLDINGS_PASSWORD }}
         run: python -m src.main notify
 
       - name: 실패 알림 (카카오톡)

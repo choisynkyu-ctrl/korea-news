@@ -19,6 +19,7 @@ def today_kst() -> date:
 
 def cmd_build() -> None:
     from .collect import collect
+    from . import holdings
     from .curate import curate
     from .digest import digest
     from .market import fetch_market, mark_closed, market_text
@@ -38,6 +39,12 @@ def cmd_build() -> None:
         data["market_comment"] = ""
         data["market_headline"] = f"주말·휴일로 새 거래가 없습니다. 시장 숫자는 {int(kr[5:7])}/{int(kr[8:])} 종가 기준입니다." if kr else ""
     data["market"] = market
+    try:
+        enc = holdings.build(market, d)
+        if enc:
+            data["holdings_enc"] = enc
+    except Exception as e:                       # 보유 수익 계산이 실패해도 브리핑은 계속
+        print(f"[holdings] 실패: {e}")
     data["digest"] = digest(data, d)
     save_and_render(data, d)
 
@@ -85,6 +92,12 @@ def cmd_preview() -> None:
         "market_comment": "미리보기: 실제 실행 때는 아래 시세 숫자와 경제 기사를 바탕으로 한 시황 코멘트 2~3문장이 들어갑니다.",
         "stories": stories, "market": fetch_market(), "digest": {},
     }
+    from . import holdings
+    from .market import mark_closed
+    mark_closed(data["market"], d)
+    enc = holdings.build(data["market"], d)      # HOLDINGS_JSON·HOLDINGS_PASSWORD 환경변수가 있을 때만
+    if enc:
+        data["holdings_enc"] = enc
     (out / "preview.json").write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     (out / "index.html").write_text(render_page(data, d, "", [d]), encoding="utf-8")
     print(f"[preview] {out / 'index.html'}")
