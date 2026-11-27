@@ -1,4 +1,4 @@
-# 보유 종목(수량·평단가)과 '내 보유 수익'을 여는 비밀번호를 GitHub Secret으로 저장한다.
+﻿# 보유 종목(수량·평단가)과 '내 보유 수익'을 여는 비밀번호를 GitHub Secret으로 저장한다.
 #   - scripts\holdings.local.json  →  HOLDINGS_JSON   (이 파일은 .gitignore로 저장소에 올라가지 않음)
 #   - 입력한 비밀번호               →  HOLDINGS_PASSWORD
 # 사용: powershell -ExecutionPolicy Bypass -File scripts\set_holdings_password.ps1
