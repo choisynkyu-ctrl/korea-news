@@ -55,7 +55,7 @@ h2.sec small{font-size:12px;font-weight:500;color:var(--muted)}
 .spark .tip:empty{display:none}
 .spark .guide{stroke:var(--muted);stroke-width:1;opacity:0}
 .spark:hover .guide{opacity:.5}
-.tile .foot{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.tile .foot{display:flex;justify-content:space-between;gap:6px;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}
 .comment{margin:12px 0 0;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:grid;grid-template-columns:52px 1fr;gap:12px;align-items:baseline}
 .comment .lbl{font-size:12px;font-weight:700;text-align:center;background:var(--chip);border-radius:6px;padding:3px 0}
 .comment p{margin:0;font-size:15px}
@@ -67,7 +67,13 @@ th{font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;user-select:
 th[aria-sort=descending]::after{content:" ↓"}th[aria-sort=ascending]::after{content:" ↑"}
 th:first-child,td:first-child{text-align:left}
 td .code{font-size:11px;color:var(--muted);margin-left:6px}
-td.sp{width:140px;padding-top:4px;padding-bottom:4px}
+td .no{display:inline-block;min-width:20px;font-size:12px;font-weight:700;color:var(--muted)}
+th:first-child,td:first-child{position:sticky;left:0;background:var(--card);z-index:1}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 4px}
+.tabs button{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:999px;padding:6px 14px;cursor:pointer}
+.tabs button[aria-pressed=true]{background:var(--accent);color:var(--bg);border-color:var(--accent)}
+.empty{color:var(--muted);font-size:14px}
+td.sp{width:150px;padding-top:4px;padding-bottom:4px}
 td.sp .spark{margin:0}td.sp .spark svg{height:28px}td.sp .tip{display:none}
 .filters{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px}
 .filters button{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:999px;padding:6px 14px;cursor:pointer}
@@ -116,12 +122,17 @@ document.querySelectorAll('.spark').forEach(sp=>{
   });
   sp.addEventListener('mouseleave',()=>{tip.textContent=def});
 });
-// 관심 종목 표 정렬
+// 업종 버튼
+const tabs=document.querySelectorAll('.tabs button');
+function showGroup(g){tabs.forEach(x=>x.setAttribute('aria-pressed',x.dataset.g===g));document.querySelectorAll('.group').forEach(p=>{p.hidden=p.dataset.g!==g});}
+tabs.forEach(b=>b.addEventListener('click',()=>{showGroup(b.dataset.g);try{localStorage.setItem('kb-group',b.textContent)}catch(e){}}));
+try{const saved=localStorage.getItem('kb-group');const t=[...tabs].find(x=>x.textContent===saved);if(t)showGroup(t.dataset.g)}catch(e){}
+// 종목 표 정렬
 document.querySelectorAll('table.sortable').forEach(t=>{
   t.querySelectorAll('th[data-k]').forEach((th,ci)=>th.addEventListener('click',()=>{
-    const desc=th.getAttribute('aria-sort')!=='descending',k=th.dataset.k,tb=t.tBodies[0];
+    const k=th.dataset.k,cur=th.getAttribute('aria-sort'),desc=k==='rank'?cur==='ascending':cur!=='descending',tb=t.tBodies[0];
     t.querySelectorAll('th').forEach(x=>x.removeAttribute('aria-sort'));th.setAttribute('aria-sort',desc?'descending':'ascending');
-    [...tb.rows].sort((a,b)=>{const x=a.dataset[k],y=b.dataset[k];const r=isNaN(x)?x.localeCompare(y,'ko'):x-y;return desc?-r:r}).forEach(r=>tb.appendChild(r));
+    [...tb.rows].sort((a,b)=>{const x=a.dataset[k],y=b.dataset[k];const r=(x===''||y==='')?(x===''?-1:1):isNaN(x)?x.localeCompare(y,'ko'):x-y;return desc?-r:r}).forEach(r=>tb.appendChild(r));
   }));
 });
 """
@@ -144,7 +155,7 @@ def _num(v: float, dec: int) -> str:
 
 
 def _spark(points: list, dec: int, direction: str, tip: str = "") -> str:
-    """1개월 종가 추이 (단일 계열이라 범례 없음). 폭 200 기준 좌표, hover로 날짜·값 표시."""
+    """1년 종가 추이 (단일 계열이라 범례 없음). 폭 200 기준 좌표, hover로 날짜·값 표시."""
     vals = [v for _, v in points]
     if len(vals) < 2:
         return ""
@@ -154,64 +165,100 @@ def _spark(points: list, dec: int, direction: str, tip: str = "") -> str:
     xy = [(i / (len(vals) - 1) * 200, pad + (hi - v) / span * (h - 2 * pad)) for i, v in enumerate(vals)]
     line = " ".join(f"{x:.1f},{y:.1f}" for x, y in xy)
     area = f"0,{h} {line} 200,{h}"
-    color = f"var(--{direction})"
-    lx, ly = xy[-1]
+    lx, _ = xy[-1]
     return (
         f'<div class="spark" data-p="{escape(json.dumps(points))}" data-dec="{dec}">'
-        + f'<span class="tip">{escape(tip)}</span>'
-        + f'<svg viewBox="0 0 200 {h}" preserveAspectRatio="none" role="img" aria-label="최근 1개월 추이, 최저 {_num(lo, dec)} 최고 {_num(hi, dec)}">'
+        f'<span class="tip">{escape(tip)}</span>'
+        f'<svg viewBox="0 0 200 {h}" preserveAspectRatio="none" role="img" aria-label="최근 1년 추이, 최저 {_num(lo, dec)} 최고 {_num(hi, dec)}">'
         f'<polygon points="{area}" fill="var(--{direction}-fill)"/>'
-        f'<polyline points="{line}" fill="none" stroke="{color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>'
+        f'<polyline points="{line}" fill="none" stroke="var(--{direction})" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>'
         f'<line class="guide" x1="{lx:.1f}" x2="{lx:.1f}" y1="0" y2="{h}" vector-effect="non-scaling-stroke"/>'
         "</svg></div>"
     )
 
 
+def _trend(q: dict) -> float:
+    """그래프 색을 정할 기간 수익률 (예전 데이터는 period_pct)."""
+    return q.get("y1_pct", q.get("period_pct", 0)) or 0
+
+
+def _ret(v, label: str = "") -> str:
+    if v is None:
+        return f'<span class="flat">{label} -</span>' if label else '<span class="flat">-</span>'
+    return f'<span class="{_dir(v)}">{label + " " if label else ""}{v:+.2f}%</span>'
+
+
+def _cap(eok) -> str:
+    if not eok:
+        return "-"
+    return f"{eok / 10000:,.1f}조" if eok >= 10000 else f"{eok:,}억"
+
+
 def _tile(q: dict) -> str:
     dec = q.get("decimals", 2)
-    d = _dir(q["change"])
-    md = q["date"][5:].replace("-", "/")
+    m1 = q.get("m1_pct", q.get("period_pct"))
     return f"""<div class="tile">
   <span class="grp">{escape(q['group'])}</span>
   <span class="nm">{escape(q['name'])}</span>
   <span class="px">{_num(q['price'], dec)}</span>
-  <span class="chg {d}">{_arrow(q['change'])} {_num(abs(q['change']), dec)} ({q['change_pct']:+.2f}%)</span>
-  {_spark(q['spark'], dec, _dir(q['period_pct']))}
-  <div class="foot"><span>{md} 종가</span><span class="{_dir(q['period_pct'])}">1개월 {q['period_pct']:+.2f}%</span></div>
+  <span class="chg {_dir(q['change'])}">{_arrow(q['change'])} {_num(abs(q['change']), dec)} ({q['change_pct']:+.2f}%)</span>
+  {_spark(q['spark'], dec, _dir(_trend(q)))}
+  <div class="foot">{_ret(m1, '1개월')}{_ret(q.get('q1_pct'), '분기')}</div>
 </div>"""
 
 
-def _stocks_table(stocks: list[dict]) -> str:
+def _stocks_table(stocks: list[dict], caption: str) -> str:
     if not stocks:
-        return ""
+        return '<p class="empty">시세를 받지 못했습니다.</p>'
+    num = lambda v: "" if v is None else v
     rows = "".join(
-        f'<tr data-name="{escape(s["name"])}" data-price="{s["price"]}" data-chg="{s["change_pct"]}" data-period="{s["period_pct"]}">'
-        f'<td>{escape(s["name"])}<span class="code">{escape(s["code"])}</span></td>'
+        f'<tr data-rank="{i}" data-name="{escape(s["name"])}" data-price="{s["price"]}" data-chg="{s["change_pct"]}" '
+        f'data-m1="{num(s.get("m1_pct", s.get("period_pct")))}" data-q1="{num(s.get("q1_pct"))}" data-cap="{s.get("cap") or 0}">'
+        f'<td><span class="no">{i}</span>{escape(s["name"])}<span class="code">{escape(s["code"])}</span></td>'
         f'<td>{_num(s["price"], 0)}</td>'
         f'<td class="{_dir(s["change"])}">{_arrow(s["change"])} {abs(s["change_pct"]):.2f}%</td>'
-        f'<td class="{_dir(s["period_pct"])}">{s["period_pct"]:+.2f}%</td>'
-        f'<td class="sp">{_spark(s["spark"], 0, _dir(s["period_pct"]))}</td></tr>'
-        for s in stocks
+        f'<td>{_ret(s.get("m1_pct", s.get("period_pct")))}</td>'
+        f'<td>{_ret(s.get("q1_pct"))}</td>'
+        f'<td>{_cap(s.get("cap"))}</td>'
+        f'<td class="sp">{_spark(s["spark"], 0, _dir(_trend(s)))}</td></tr>'
+        for i, s in enumerate(stocks, start=1)
     )
-    asof = max(s["date"] for s in stocks)[5:].replace("-", "/")
     return f"""<div class="tablewrap"><table class="sortable">
-<caption hidden>관심 종목 시세 ({asof} 종가 기준)</caption>
-<thead><tr><th data-k="name">종목</th><th data-k="price">종가(원)</th><th data-k="chg">전일 대비</th><th data-k="period">1개월</th><th>추이</th></tr></thead>
+<caption hidden>{escape(caption)}</caption>
+<thead><tr><th data-k="rank">종목</th><th data-k="price">종가(원)</th><th data-k="chg">전일 대비</th><th data-k="m1">1개월</th><th data-k="q1">분기</th><th data-k="cap">시가총액</th><th>1년 추이</th></tr></thead>
 <tbody>{rows}</tbody></table></div>"""
+
+
+def _groups_html(m: dict) -> str:
+    groups = m.get("groups")
+    if not groups and m.get("stocks"):          # 예전 데이터: 관심 종목 한 묶음
+        groups = [{"name": "관심 종목", "stocks": m["stocks"]}]
+    if not groups:
+        return ""
+    tabs = "".join(
+        f'<button data-g="{i}" aria-pressed="{str(i == 0).lower()}">{escape(g["name"])}</button>'
+        for i, g in enumerate(groups)
+    )
+    panels = "".join(
+        f'<div class="group" data-g="{i}"{"" if i == 0 else " hidden"}>{_stocks_table(g["stocks"], g["name"] + " 시가총액 상위")}</div>'
+        for i, g in enumerate(groups)
+    )
+    return f"""<h2 class="sec">업종별 TOP {max(len(g['stocks']) for g in groups)}<small>시가총액 순 · 버튼으로 업종 선택 · 머리글을 누르면 정렬</small></h2>
+<div class="tabs" role="group" aria-label="업종 선택">{tabs}</div>
+{panels}"""
 
 
 def _market_html(data: dict) -> str:
     m = data.get("market") or {}
-    if not m.get("indices") and not m.get("stocks"):
+    if not m.get("indices") and not m.get("groups") and not m.get("stocks"):
         return ""
     tiles = "".join(_tile(q) for q in m.get("indices", []))
     comment = data.get("market_comment", "")
     comment_html = f'<div class="comment"><span class="lbl">시황</span><p>{escape(comment)}</p></div>' if comment else ""
-    return f"""<h2 class="sec">시장<small>전일 종가 기준 · 해외는 간밤 마감</small></h2>
+    return f"""<h2 class="sec">시장<small>전일 종가 기준 · 해외는 최근 마감 · 그래프는 최근 1년</small></h2>
 <div class="tiles">{tiles}</div>
 {comment_html}
-<h2 class="sec">관심 종목<small>머리글을 누르면 정렬</small></h2>
-{_stocks_table(m.get('stocks', []))}"""
+{_groups_html(m)}"""
 
 
 def _card(s: dict) -> str:
@@ -288,7 +335,7 @@ def render_page(data: dict, d: date, root: str, all_dates: list[date]) -> str:
 {cards}
 </main>
 <footer>연합뉴스, 한겨레, 경향신문, 동아일보, 조선일보, 매일경제, SBS, JTBC, Google News(종합·경제) RSS를 바탕으로 AI(Google Gemini)가 선정·요약했습니다.
-시세는 Yahoo Finance 일별 종가이며 지연·오차가 있을 수 있습니다. 투자 판단의 근거로 쓰지 마시고, 정확한 내용은 원문과 공식 시세를 확인하세요.</footer>
+시세는 Yahoo Finance 일별 종가, 시가총액·종목 정보는 네이버 증권 기준이며 지연·오차가 있을 수 있습니다. 투자 판단의 근거로 쓰지 마시고, 정확한 내용은 원문과 공식 시세를 확인하세요.</footer>
 </div>
 <script>{JS}</script>
 </body>

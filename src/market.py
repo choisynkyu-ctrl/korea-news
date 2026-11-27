@@ -1,39 +1,46 @@
-"""지수·환율·관심 종목 시세를 모은다 (Yahoo Finance 공개 차트 API)."""
-from datetime import datetime, timedelta, timezone
+"""지수·환율·업종별 종목 시세를 모은다.
+- 시세: Yahoo Finance 공개 차트 API (1년 일별 종가)
+- 종목 이름·코스피/코스닥 구분·시가총액: 네이버 증권 모바일 API (실패하면 config 이름, .KS→.KQ 순으로 시도)
+"""
+import re
+from concurrent.futures import ThreadPoolExecutor
+from datetime import date, datetime, timedelta, timezone
 
 import requests
 
-from .config import INDICES, SCALE, SPARK_RANGE, WATCHLIST
+from .config import ALL_GROUP, CHART_RANGE, INDICES, PERIOD_RETURNS, SCALE, STOCK_GROUPS, TOP_N
 
 CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-UA = "Mozilla/5.0 (daily-korea-briefing)"
+NAVER = "https://m.stock.naver.com/api/stock/{code}/{kind}"
+UA = {"User-Agent": "Mozilla/5.0 (daily-korea-briefing)"}
+
+INDEX_POINTS = 130   # 그래프에 저장할 최대 점 수 (1년 ≈ 250거래일을 솎아 HTML·JSON 크기를 줄임)
+STOCK_POINTS = 60
 
 
 def _series(symbol: str) -> list[tuple[str, float]]:
-    """[(YYYY-MM-DD, 종가), ...] 오래된 순. 장중·휴장으로 비어 있는 값(None)은 뺀다."""
-    r = requests.get(CHART.format(symbol=symbol), params={"range": SPARK_RANGE, "interval": "1d"},
-                     headers={"User-Agent": UA}, timeout=20)
+    """[(YYYY-MM-DD, 종가), ...] 오래된 순. 날짜는 거래소 현지 기준, 빈 값(None)은 뺀다."""
+    r = requests.get(CHART.format(symbol=symbol), params={"range": CHART_RANGE, "interval": "1d"},
+                     headers=UA, timeout=20)
     r.raise_for_status()
     res = r.json()["chart"]["result"][0]
     closes = res["indicators"]["quote"][0]["close"]
     k = SCALE.get(symbol, 1)
     meta = res.get("meta", {})
-    # 날짜는 거래소 현지 기준 (미국 지수의 11/25 장은 한국 시간으로 11/26 새벽에 끝나도 11/25)
     off = timedelta(seconds=meta.get("gmtoffset", 9 * 3600))
     day = lambda ts: (datetime.fromtimestamp(ts, tz=timezone.utc) + off).date().isoformat()
-    out = []
+    out: list[tuple[str, float]] = []
     for ts, c in zip(res.get("timestamp", []), closes):
         if c is None:
             continue
         d = day(ts)
-        if out and out[-1][0] == d:   # 같은 날 막대가 두 번 오면 마지막 값
+        if out and out[-1][0] == d:
             out[-1] = (d, c * k)
         else:
             out.append((d, c * k))
-    # Yahoo는 마지막 날 막대의 종가를 비워 두고 meta에만 넣는 경우가 있어 보충한다
+    # Yahoo는 마지막 날 종가를 막대 대신 meta에만 넣는 경우가 있어 보충
     if meta.get("regularMarketPrice") and meta.get("regularMarketTime"):
-        d = day(meta["regularMarketTime"])
-        v = meta["regularMarketPrice"] * k
+        d, v = day(meta["regularMarketTime"]), meta["regularMarketPrice"] * k
         if out and out[-1][0] == d:
             out[-1] = (d, v)
         elif not out or out[-1][0] < d:
@@ -41,38 +48,119 @@ def _series(symbol: str) -> list[tuple[str, float]]:
     return out
 
 
-def _quote(name: str, symbol: str, **extra) -> dict | None:
+def _thin(s: list, n: int) -> list:
+    """최대 n개 점으로 솎는다. 마지막 점은 항상 남긴다."""
+    if len(s) <= n:
+        return s
+    step = len(s) / n
+    idx = sorted({len(s) - 1 - int(i * step) for i in range(n)})
+    return [s[i] for i in idx]
+
+
+def _pct(a: float, b: float) -> float:
+    return round((a / b - 1) * 100, 2)
+
+
+def _summarize(s: list[tuple[str, float]], points: int, decimals: int) -> dict:
+    (d, last), (_, prev) = s[-1], s[-2]
+    last_d = date.fromisoformat(d)
+    out = {
+        "date": d,
+        "price": round(last, decimals),
+        "change": round(last - prev, decimals),
+        "change_pct": _pct(last, prev),
+        "y1_pct": _pct(last, s[0][1]),
+    }
+    for key, _, days in PERIOD_RETURNS:
+        cutoff = (last_d - timedelta(days=days)).isoformat()
+        base = [v for x, v in s if x <= cutoff]
+        out[f"{key}_pct"] = _pct(last, base[-1]) if base else None
+    out["spark"] = [[x, round(v, decimals)] for x, v in _thin(s, points)]
+    return out
+
+
+def _index(name: str, symbol: str, group: str, dec: int) -> dict | None:
     try:
         s = _series(symbol)
-    except Exception as e:  # 한 종목이 실패해도 계속
+    except Exception as e:
         print(f"[market] {name}({symbol}) 실패: {e}")
         return None
     if len(s) < 2:
-        print(f"[market] {name}({symbol}) 데이터 부족")
         return None
-    (d, last), (_, prev) = s[-1], s[-2]
-    first = s[0][1]
-    return {
-        "name": name, "symbol": symbol, **extra,
-        "date": d,
-        "price": round(last, 4),
-        "change": round(last - prev, 4),
-        "change_pct": round((last / prev - 1) * 100, 2),
-        "period_pct": round((last / first - 1) * 100, 2),
-        "spark": [[x, round(v, 4)] for x, v in s],
-    }
+    return {"name": name, "symbol": symbol, "group": group, "decimals": dec, **_summarize(s, INDEX_POINTS, 2)}
+
+
+_CAP = re.compile(r"(?:([\d,]+)조)?\s*(?:([\d,]+)억)?")
+
+
+def _cap_eok(text: str) -> int | None:
+    """'1,049조 4,070억' → 10494070 (억 원 단위)."""
+    m = _CAP.fullmatch((text or "").strip())
+    if not m or not any(m.groups()):
+        return None
+    jo, eok = (int(g.replace(",", "")) if g else 0 for g in m.groups())
+    return jo * 10000 + eok
+
+
+def _naver(code: str) -> dict:
+    info: dict = {}
+    try:
+        b = requests.get(NAVER.format(code=code, kind="basic"), headers=UA, timeout=15).json()
+        info["name"] = b.get("stockName")
+        info["exch"] = (b.get("stockExchangeType") or {}).get("code")   # KS / KQ
+        it = requests.get(NAVER.format(code=code, kind="integration"), headers=UA, timeout=15).json()
+        total = {x.get("code"): x.get("value") for x in it.get("totalInfos", [])}
+        info["cap"] = _cap_eok(total.get("marketValue"))
+    except Exception as e:
+        print(f"[market] 네이버 {code} 실패: {e}")
+    return info
+
+
+def _stock(name: str, code: str) -> dict | None:
+    nv = _naver(code)
+    exchs = [nv["exch"]] if nv.get("exch") in ("KS", "KQ") else ["KS", "KQ"]
+    for ex in exchs:
+        try:
+            s = _series(f"{code}.{ex}")
+        except Exception:
+            continue
+        if len(s) >= 2:
+            return {"name": nv.get("name") or name, "code": code, "market": "코스피" if ex == "KS" else "코스닥",
+                    "cap": nv.get("cap"), **_summarize(s, STOCK_POINTS, 0)}
+    print(f"[market] {name}({code}) 시세 없음")
+    return None
 
 
 def fetch_market() -> dict:
-    indices = [q for n, sym, grp, dec in INDICES if (q := _quote(n, sym, group=grp, decimals=dec))]
-    stocks = [q for n, sym in WATCHLIST if (q := _quote(n, sym, code=sym.split(".")[0]))]
-    print(f"[market] 지수 {len(indices)}개, 종목 {len(stocks)}개")
-    return {"indices": indices, "stocks": stocks}
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        indices = [q for q in pool.map(lambda a: _index(*a), INDICES) if q]
+        codes = {code: name for items in STOCK_GROUPS.values() for name, code in items}
+        quotes = dict(zip(codes, pool.map(lambda c: _stock(codes[c], c), codes)))
+    groups = []
+    for gname, items in STOCK_GROUPS.items():
+        pool_codes = codes if gname == ALL_GROUP else [c for _, c in items]
+        qs = [quotes[c] for c in pool_codes if quotes.get(c)]
+        # 시가총액 큰 순 (시총을 못 받은 종목은 config 순서대로 뒤에)
+        qs = sorted(qs, key=lambda q: -(q["cap"] or 0))[:TOP_N]
+        groups.append({"name": gname, "stocks": qs})
+    print(f"[market] 지수 {len(indices)}개, 종목 {sum(1 for q in quotes.values() if q)}/{len(codes)}개")
+    return {"indices": indices, "groups": groups}
+
+
+def _fmt_pct(v) -> str:
+    return "-" if v is None else f"{v:+.2f}%"
 
 
 def market_text(m: dict) -> str:
     """Gemini 프롬프트에 넣을 시세 요약."""
-    lines = [f"- {q['name']}: {q['price']:,.2f} (전일 대비 {q['change_pct']:+.2f}%, 1개월 {q['period_pct']:+.2f}%, 기준일 {q['date']})"
+    lines = [f"- {q['name']}: {q['price']:,.2f} (전일 대비 {q['change_pct']:+.2f}%, 1개월 {_fmt_pct(q.get('m1_pct'))}, "
+             f"분기 {_fmt_pct(q.get('q1_pct'))}, 1년 {_fmt_pct(q.get('y1_pct'))}, 기준일 {q['date']})"
              for q in m.get("indices", [])]
-    lines += [f"- {q['name']}: {q['price']:,.0f}원 ({q['change_pct']:+.2f}%)" for q in m.get("stocks", [])]
+    seen = set()
+    for g in m.get("groups", []):
+        for q in g["stocks"]:
+            if q["code"] in seen:
+                continue
+            seen.add(q["code"])
+            lines.append(f"- [{g['name']}] {q['name']}: {q['price']:,.0f}원 (전일 대비 {q['change_pct']:+.2f}%, 1개월 {_fmt_pct(q.get('m1_pct'))})")
     return "\n".join(lines)
