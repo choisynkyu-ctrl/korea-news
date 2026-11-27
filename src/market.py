@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import requests
 
-from .config import ALL_GROUP, CHART_RANGE, ETF_GROUP, ETF_PINNED, HOLDINGS, HOLDINGS_GROUP, INDICES, PERIOD_RETURNS, QUARTERS, SCALE, STOCK_GROUPS, TOP_N
+from .config import ALL_GROUP, CHART_RANGE, HOLDINGS, HOLDINGS_GROUP, INDICES, PERIOD_RETURNS, QUARTERS, SCALE, STOCK_GROUPS, TOP_N
 
 CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 NAVER = "https://m.stock.naver.com/api/stock/{code}/{kind}"
@@ -139,8 +139,6 @@ def _naver(code: str) -> dict:
         total = {x.get("code"): x.get("value") for x in it.get("totalInfos", [])}
         etf = it.get("etfKeyIndicator") or {}
         info["cap"] = _cap_eok(etf.get("marketValue") or total.get("marketValue"))
-        info["base"] = total.get("etfBaseIdx")        # ETF 기초지수
-        info["issuer"] = etf.get("issuerName")
     except Exception as e:
         print(f"[market] 네이버 {code} 실패: {e}")
     return info
@@ -157,52 +155,24 @@ def _stock(name: str, code: str) -> dict | None:
         if len(s) >= 2:
             out = {"name": nv.get("name") or name, "code": code, "market": "코스피" if ex == "KS" else "코스닥",
                    "cap": nv.get("cap"), **_summarize(s, STOCK_POINTS, 0)}
-            if nv.get("base"):
-                out["base"] = nv["base"]
             return out
     print(f"[market] {name}({code}) 시세 없음")
     return None
 
 
-_NOISE = re.compile(r"net total return|total return|price return|index|지수|(?<![a-z])(?:tr|pr)(?![a-z])|[\s\-_()]")
-
-
-def _same_key(item: tuple, q: dict) -> str | None:
-    """같은 상품으로 볼 키: config의 세 번째 값, 없으면 기초지수 이름을 정리한 것 (예: 'S&P 500 Total Return Index' → 's&p500')."""
-    if len(item) > 2:
-        return item[2]
-    return _NOISE.sub("", q["base"].lower()) if q.get("base") else None
-
-
 def fetch_market() -> dict:
     with ThreadPoolExecutor(max_workers=8) as pool:
         indices = [q for q in pool.map(lambda a: _index(*a), INDICES) if q]
-        codes = {it[1]: it[0] for items in [*STOCK_GROUPS.values(), ETF_PINNED, HOLDINGS] for it in items}
+        codes = {it[1]: it[0] for items in [*STOCK_GROUPS.values(), HOLDINGS] for it in items}
         quotes = dict(zip(codes, pool.map(lambda c: _stock(codes[c], c), codes)))
-    stock_codes = [it[1] for g, items in STOCK_GROUPS.items() if g != ETF_GROUP for it in items]
+    stock_codes = [it[1] for items in STOCK_GROUPS.values() for it in items]
     groups = []
     for gname, items in STOCK_GROUPS.items():
         if gname == ALL_GROUP:
             items = [(codes[c], c) for c in dict.fromkeys(stock_codes)]
-        cand = [(it, quotes[it[1]]) for it in items if quotes.get(it[1])]
-        # 시가총액 큰 순 (시총을 못 받은 종목은 config 순서대로 뒤에)
-        cand.sort(key=lambda t: -(t[1]["cap"] or 0))
-        qs, seen = [], set()
-        for it, q in cand:
-            key = _same_key(it, q) if gname == ETF_GROUP else None
-            if key and key in seen:
-                continue                     # 같은 지수 상품 중 더 작은 것 → 건너뜀
-            seen.add(key)
-            qs.append(q)
-        g = {"name": gname, "stocks": qs[:TOP_N]}
-        if gname == ETF_GROUP:
-            pinned = [{**quotes[c], "pinned": True} for _, c in ETF_PINNED if quotes.get(c)]
-            pinned_codes = {q["code"] for q in pinned}
-            top = [q for q in qs if q["code"] not in pinned_codes][:TOP_N - len(pinned)]
-            g["stocks"] = top + pinned
-            g["note"] = ("같은 지수를 따르는 ETF(운용사만 다른 상품)는 시가총액이 가장 큰 것만 표시합니다. "
-                         "'보유' 표시 ETF는 시가총액과 관계없이 항상 맨 아래에 나옵니다.")
-        groups.append(g)
+        qs = [quotes[it[1]] for it in items if quotes.get(it[1])]
+        qs.sort(key=lambda q: -(q["cap"] or 0))   # 시가총액 큰 순 (시총을 못 받은 종목은 config 순서대로 뒤에)
+        groups.append({"name": gname, "stocks": qs[:TOP_N]})
     held = [quotes[c] for _, c in HOLDINGS if quotes.get(c)]
     if held:
         groups.append({"name": HOLDINGS_GROUP, "stocks": held,
