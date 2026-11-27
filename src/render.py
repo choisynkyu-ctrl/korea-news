@@ -79,6 +79,8 @@ th:first-child,td:first-child{position:sticky;left:0;background:var(--card);z-in
 .tabs button{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:999px;padding:6px 14px;cursor:pointer}
 .tabs button[aria-pressed=true]{background:var(--accent);color:var(--bg);border-color:var(--accent)}
 .empty{color:var(--muted);font-size:14px}
+.mine{display:inline-block;margin-left:6px;font-size:11px;font-weight:700;color:var(--accent);border:1px solid var(--accent);border-radius:5px;padding:0 5px;vertical-align:1px}
+tr.pin td{background:var(--chip)}
 .group .note{margin:8px 2px 0;font-size:12px;color:var(--muted)}
 td.sp{width:150px;padding-top:4px;padding-bottom:4px}
 td.sp .spark{margin:0}td.sp .spark svg{height:28px}td.sp .tip{display:none}
@@ -238,9 +240,9 @@ def _stocks_table(stocks: list[dict], caption: str) -> str:
         return '<p class="empty">시세를 받지 못했습니다.</p>'
     num = lambda v: "" if v is None else v
     rows = "".join(
-        f'<tr data-rank="{i}" data-name="{escape(s["name"])}" data-price="{s["price"]}" data-chg="{s["change_pct"]}" '
+        f'<tr{' class="pin"' if s.get("pinned") else ''} data-rank="{i}" data-name="{escape(s["name"])}" data-price="{s["price"]}" data-chg="{s["change_pct"]}" '
         f'data-m1="{num(s.get("m1_pct", s.get("period_pct")))}" {"".join(f'data-q{j}="{num(x["pct"])}" ' for j, x in enumerate(s.get("quarters") or []))}data-cap="{s.get("cap") or 0}">'
-        f'<td><span class="no">{i}</span>{escape(s["name"])}<span class="code">{escape(s["code"])}</span></td>'
+        f'<td><span class="no">{i}</span>{escape(s["name"])}<span class="code">{escape(s["code"])}</span>{'<span class="mine">보유</span>' if s.get("pinned") else ''}</td>'
         f'<td>{_num(s["price"], 0)}</td>'
         f'<td class="{_dir(s["change"])}">{_arrow(s["change"])} {abs(s["change_pct"]):.2f}%</td>'
         f'<td>{_ret(s.get("m1_pct", s.get("period_pct")))}</td>'

@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import requests
 
-from .config import ALL_GROUP, CHART_RANGE, ETF_GROUP, INDICES, PERIOD_RETURNS, QUARTERS, SCALE, STOCK_GROUPS, TOP_N
+from .config import ALL_GROUP, CHART_RANGE, ETF_GROUP, ETF_PINNED, INDICES, PERIOD_RETURNS, QUARTERS, SCALE, STOCK_GROUPS, TOP_N
 
 CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 NAVER = "https://m.stock.naver.com/api/stock/{code}/{kind}"
@@ -172,7 +172,7 @@ def _same_key(item: tuple, q: dict) -> str | None:
 def fetch_market() -> dict:
     with ThreadPoolExecutor(max_workers=8) as pool:
         indices = [q for q in pool.map(lambda a: _index(*a), INDICES) if q]
-        codes = {it[1]: it[0] for items in STOCK_GROUPS.values() for it in items}
+        codes = {it[1]: it[0] for items in [*STOCK_GROUPS.values(), ETF_PINNED] for it in items}
         quotes = dict(zip(codes, pool.map(lambda c: _stock(codes[c], c), codes)))
     stock_codes = [it[1] for g, items in STOCK_GROUPS.items() if g != ETF_GROUP for it in items]
     groups = []
@@ -191,7 +191,12 @@ def fetch_market() -> dict:
             qs.append(q)
         g = {"name": gname, "stocks": qs[:TOP_N]}
         if gname == ETF_GROUP:
-            g["note"] = "같은 지수를 따르는 ETF(운용사만 다른 상품)는 시가총액이 가장 큰 것만 표시합니다."
+            pinned = [{**quotes[c], "pinned": True} for _, c in ETF_PINNED if quotes.get(c)]
+            pinned_codes = {q["code"] for q in pinned}
+            top = [q for q in qs if q["code"] not in pinned_codes][:TOP_N - len(pinned)]
+            g["stocks"] = top + pinned
+            g["note"] = ("같은 지수를 따르는 ETF(운용사만 다른 상품)는 시가총액이 가장 큰 것만 표시합니다. "
+                         "'보유' 표시 ETF는 시가총액과 관계없이 항상 맨 아래에 나옵니다.")
         groups.append(g)
     print(f"[market] 지수 {len(indices)}개, 종목 {sum(1 for q in quotes.values() if q)}/{len(codes)}개")
     return {"indices": indices, "groups": groups}
