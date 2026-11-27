@@ -56,9 +56,42 @@ def _text_template(text: str, url: str) -> dict:
     }
 
 
+KAKAO_NUMBERS = ["^KS11", "KRW=X", "^GSPC"]   # 카톡에 숫자로 보여줄 지표 (코스피, 원/달러, S&P 500)
+
+
+def _numbers(data: dict) -> str:
+    idx = {q["symbol"]: q for q in (data.get("market") or {}).get("indices", [])}
+    parts = []
+    for sym in KAKAO_NUMBERS:
+        q = idx.get(sym)
+        if q:
+            arrow = "▲" if q["change"] > 0 else "▼" if q["change"] < 0 else "-"
+            parts.append(f"{q['name']} {q['price']:,.2f} {arrow}{abs(q['change_pct']):.2f}%")
+    return " · ".join(parts)
+
+
 def build_message(data: dict, d: date) -> str:
-    """제목 한 줄만 보낸다. 내용은 '대시보드 열기' 버튼으로 확인."""
-    return f"{d.month}/{d.day} 국내 뉴스 · 증시 브리핑"
+    """제목 + 핵심 숫자 한 줄 + 증시 한 줄 요약 (200자 넘으면 _text_template에서 자름)."""
+    lines = [f"{d.month}/{d.day} 국내 뉴스 · 증시 브리핑"]
+    nums = _numbers(data)
+    if nums:
+        closed = (data.get("market") or {}).get("closed")
+        lines.append(("(새 거래 없음) " if closed == "all" else "") + nums)
+    if data.get("market_headline") and (data.get("market") or {}).get("closed") != "all":
+        lines.append(data["market_headline"])
+    return "\n".join(lines)
+
+
+def notify_failure(d: date, run_url: str) -> None:
+    """빌드가 실패했을 때 알림 (버튼은 Actions 실행 로그로 연결)."""
+    token = refresh_access_token()
+    _send(token, {
+        "object_type": "text",
+        "text": f"{d.month}/{d.day} 국내 브리핑 생성에 실패했습니다. 오늘 대시보드는 갱신되지 않았습니다.",
+        "link": {"web_url": run_url, "mobile_web_url": run_url},
+        "button_title": "실행 로그 보기",
+    })
+    print("[kakao] 실패 알림 전송")
 
 
 def notify(data: dict, d: date, dashboard_url: str) -> None:

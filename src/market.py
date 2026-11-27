@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import requests
 
-from .config import ALL_GROUP, CHART_RANGE, ETF_GROUP, ETF_PINNED, INDICES, PERIOD_RETURNS, QUARTERS, SCALE, STOCK_GROUPS, TOP_N
+from .config import ALL_GROUP, CHART_RANGE, ETF_GROUP, ETF_PINNED, HOLDINGS, HOLDINGS_GROUP, INDICES, PERIOD_RETURNS, QUARTERS, SCALE, STOCK_GROUPS, TOP_N
 
 CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 NAVER = "https://m.stock.naver.com/api/stock/{code}/{kind}"
@@ -76,7 +76,10 @@ def _quarters(s: list[tuple[str, float]], last_d: date) -> list[dict]:
         end = date(y + (q == 4), (3 * q) % 12 + 1, 1) - timedelta(days=1)  # 이 분기 마지막 날
         a = _close_on(s, start)
         ok = a is not None and s[0][0] <= start.isoformat()
-        out.append({"label": f"{y % 100}.{q}Q", "pct": _pct(s[-1][1], a) if ok else None, "ongoing": end > last_d})
+        first = start + timedelta(days=1)                                   # 분기 첫날
+        out.append({"label": f"{y % 100}.{q}Q", "start": first.isoformat(),
+                    "since": "연초" if q == 1 else f"{first.month}/1",       # 화면 표시: '연초 대비', '4/1 대비' …
+                    "pct": _pct(s[-1][1], a) if ok else None, "ongoing": end > last_d})
         y, q = (y, q - 1) if q > 1 else (y - 1, 4)
     return out[::-1]
 
@@ -97,6 +100,8 @@ def _summarize(s: list[tuple[str, float]], points: int, decimals: int) -> dict:
         base = _close_on(s, last_d - timedelta(days=days))
         out[f"{key}_pct"] = _pct(last, base) if base else None
     out["quarters"] = _quarters(s, last_d)
+    base = _close_on(s, date(last_d.year, 1, 1) - timedelta(days=1))
+    out["ytd_pct"] = _pct(last, base) if base and s[0][0] < f"{last_d.year}-01-01" else None
     out["spark"] = [[x, round(v, decimals)] for x, v in _thin(recent, points)]
     return out
 
@@ -172,7 +177,7 @@ def _same_key(item: tuple, q: dict) -> str | None:
 def fetch_market() -> dict:
     with ThreadPoolExecutor(max_workers=8) as pool:
         indices = [q for q in pool.map(lambda a: _index(*a), INDICES) if q]
-        codes = {it[1]: it[0] for items in [*STOCK_GROUPS.values(), ETF_PINNED] for it in items}
+        codes = {it[1]: it[0] for items in [*STOCK_GROUPS.values(), ETF_PINNED, HOLDINGS] for it in items}
         quotes = dict(zip(codes, pool.map(lambda c: _stock(codes[c], c), codes)))
     stock_codes = [it[1] for g, items in STOCK_GROUPS.items() if g != ETF_GROUP for it in items]
     groups = []
@@ -198,6 +203,10 @@ def fetch_market() -> dict:
             g["note"] = ("같은 지수를 따르는 ETF(운용사만 다른 상품)는 시가총액이 가장 큰 것만 표시합니다. "
                          "'보유' 표시 ETF는 시가총액과 관계없이 항상 맨 아래에 나옵니다.")
         groups.append(g)
+    held = [quotes[c] for _, c in HOLDINGS if quotes.get(c)]
+    if held:
+        groups.append({"name": HOLDINGS_GROUP, "stocks": held,
+                       "note": "공개 페이지라 수량·매수가는 표시하지 않고 등락률만 보여줍니다."})
     print(f"[market] 지수 {len(indices)}개, 종목 {sum(1 for q in quotes.values() if q)}/{len(codes)}개")
     return {"indices": indices, "groups": groups}
 
@@ -220,3 +229,15 @@ def market_text(m: dict) -> str:
             seen.add(q["code"])
             lines.append(f"- [{g['name']}] {q['name']}: {q['price']:,.0f}원 (전일 대비 {q['change_pct']:+.2f}%, 1개월 {_fmt_pct(q.get('m1_pct'))})")
     return "\n".join(lines)
+
+
+def mark_closed(m: dict, today: date) -> None:
+    """어제(KST) 이후 거래가 있었는지 표시한다 (주말·휴일 판단).
+    06:20 실행 기준으로 코스피·S&P 500 기준일이 '어제' 이상이면 새 거래가 있었던 것.
+    m["closed"] = None(정상) | "kr"(코스피만 오래됨 = 국내 휴장) | "all"(둘 다 오래됨 = 주말·공휴일)."""
+    d = {q["symbol"]: q["date"] for q in m.get("indices", [])}
+    yday = (today - timedelta(days=1)).isoformat()
+    stale = lambda sym: sym in d and d[sym] < yday
+    m["closed"] = "all" if stale("^KS11") and stale("^GSPC") else "kr" if stale("^KS11") else None
+    m["kr_date"] = d.get("^KS11")
+    print(f"[market] 거래 상태: {m['closed'] or '정상'} (코스피 기준일 {m['kr_date']}, 오늘 {today})")

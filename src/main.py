@@ -21,7 +21,7 @@ def cmd_build() -> None:
     from .collect import collect
     from .curate import curate
     from .digest import digest
-    from .market import fetch_market, market_text
+    from .market import fetch_market, mark_closed, market_text
     from .render import save_and_render
 
     d = today_kst()
@@ -29,7 +29,14 @@ def cmd_build() -> None:
     if len(items) < 20:
         raise SystemExit(f"후보 기사가 너무 적습니다 ({len(items)}건). RSS 소스를 확인하세요.")
     market = fetch_market()
-    data = curate(items, d.isoformat(), market_text(market))
+    mark_closed(market, d)
+    note = {"all": "(주말·휴일로 어제 새 거래가 없었습니다. 아래는 직전 거래일 종가입니다.)\n",
+            "kr": "(국내 증시 휴장: 코스피는 직전 거래일 종가입니다.)\n"}.get(market["closed"], "")
+    data = curate(items, d.isoformat(), note + market_text(market))
+    if market["closed"] == "all":
+        kr = market.get("kr_date") or ""
+        data["market_comment"] = ""
+        data["market_headline"] = f"주말·휴일로 새 거래가 없습니다. 시장 숫자는 {int(kr[5:7])}/{int(kr[8:])} 종가 기준입니다." if kr else ""
     data["market"] = market
     data["digest"] = digest(data, d)
     save_and_render(data, d)
@@ -43,6 +50,11 @@ def cmd_notify() -> None:
     if d != today_kst():
         raise SystemExit(f"latest.json 날짜({d})가 오늘이 아닙니다. build가 실패했는지 확인하세요.")
     notify(data, d, os.environ["DASHBOARD_URL"])
+
+
+def cmd_notify_fail() -> None:
+    from .kakao import notify_failure
+    notify_failure(today_kst(), os.environ.get("RUN_URL") or os.environ["DASHBOARD_URL"])
 
 
 def cmd_render() -> None:
@@ -80,4 +92,5 @@ def cmd_preview() -> None:
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "build"
-    {"build": cmd_build, "notify": cmd_notify, "render": cmd_render, "preview": cmd_preview}[cmd]()
+    {"build": cmd_build, "notify": cmd_notify, "notify-fail": cmd_notify_fail,
+     "render": cmd_render, "preview": cmd_preview}[cmd]()

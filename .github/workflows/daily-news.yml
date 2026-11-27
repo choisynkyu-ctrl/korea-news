@@ -53,6 +53,17 @@ jobs:
           NEW_REFRESH_TOKEN_FILE: ${{ runner.temp }}/kakao_refresh_token
         run: python -m src.main notify
 
+      - name: 실패 알림 (카카오톡)
+        if: failure()
+        continue-on-error: true
+        env:
+          KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
+          KAKAO_CLIENT_SECRET: ${{ secrets.KAKAO_CLIENT_SECRET }}
+          KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
+          NEW_REFRESH_TOKEN_FILE: ${{ runner.temp }}/kakao_refresh_token
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python -m src.main notify-fail
+
       - name: 카카오 refresh token 자동 갱신
         if: always()
         env:

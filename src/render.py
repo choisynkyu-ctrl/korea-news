@@ -52,16 +52,17 @@ h2.sec small{font-size:12px;font-weight:500;color:var(--muted)}
 .tile .px{font-size:24px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.3}
 .chg{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
 .up{color:var(--up)}.down{color:var(--down)}.flat{color:var(--flat)}
-.spark{position:relative;margin-top:6px}
+.spark{position:relative;margin-top:6px;display:flex;flex-direction:column}
+.spark svg{order:1}.qlabels{order:2}
 .spark svg{display:block;width:100%;height:44px;overflow:visible}
-.spark .tip{position:absolute;top:-2px;right:0;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;background:var(--card);padding:0 2px}
-.spark .tip:empty{display:none}
+.spark .tip{display:block;order:3;min-height:15px;margin-top:1px;font-size:11px;line-height:15px;color:var(--text);text-align:right;font-variant-numeric:tabular-nums}
 .spark .guide{stroke:var(--muted);stroke-width:1;opacity:0}
 .spark:hover .guide{opacity:.5}
 .tile .foot span{white-space:nowrap}
-.tile .foot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:0 6px;font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}
-.qs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin-top:6px;padding-top:6px;border-top:1px solid var(--line);text-align:center;font-variant-numeric:tabular-nums}
-.qs span{display:block;font-size:10px;color:var(--muted)}.qs b{display:block;font-size:11px;letter-spacing:-.02em;font-weight:600;white-space:nowrap}
+.tile .foot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:0 6px;font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:4px}
+.spark .qline{stroke:var(--muted);stroke-width:1;stroke-dasharray:2 3;opacity:.45}
+.qlabels{position:relative;height:13px;margin-top:2px}
+.qlabels span{position:absolute;top:0;font-size:10px;color:var(--muted);padding-left:3px;line-height:13px}
 .comment{margin:0 0 12px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:grid;grid-template-columns:52px 1fr;gap:12px;align-items:baseline}
 .comment .lbl{font-size:12px;font-weight:700;text-align:center;background:var(--chip);border-radius:6px;padding:3px 0}
 .comment p{margin:0;font-size:15px}
@@ -83,7 +84,7 @@ th:first-child,td:first-child{position:sticky;left:0;background:var(--card);z-in
 tr.pin td{background:var(--chip)}
 .group .note{margin:8px 2px 0;font-size:12px;color:var(--muted)}
 td.sp{width:150px;padding-top:4px;padding-bottom:4px}
-td.sp .spark{margin:0}td.sp .spark svg{height:28px}td.sp .tip{display:none}
+td.sp .spark{margin:0}td.sp .spark svg{height:28px}td.sp .tip{display:none!important}
 .filters{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 16px}
 .filters button{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:999px;padding:6px 14px;cursor:pointer}
 .filters button[aria-pressed=true]{background:var(--accent);color:var(--bg);border-color:var(--accent)}
@@ -118,18 +119,21 @@ btns.forEach(b=>b.addEventListener('click',()=>{
   const c=b.dataset.cat;
   document.querySelectorAll('.card').forEach(el=>{el.hidden=!(c==='all'||el.dataset.cat===c)});
 }));
-// 추이 그래프 hover: 날짜·값 표시
+// 추이 그래프: 마우스/터치한 날짜·값 + 그 날짜가 속한 분기의 '분기 시작 대비 현재' 등락률
 document.querySelectorAll('.spark').forEach(sp=>{
-  const pts=JSON.parse(sp.dataset.p),dec=+sp.dataset.dec,tip=sp.querySelector('.tip'),g=sp.querySelector('.guide'),svg=sp.querySelector('svg');
-  if(!tip)return;
+  const pts=JSON.parse(sp.dataset.p),qs=JSON.parse(sp.dataset.q||'[]'),dec=+sp.dataset.dec,tip=sp.querySelector('.tip'),g=sp.querySelector('.guide'),svg=sp.querySelector('svg');
+  if(!tip||sp.closest('td'))return;
   const fmt=v=>v.toLocaleString('ko-KR',{minimumFractionDigits:dec,maximumFractionDigits:dec});
-  const def=tip.textContent;
-  sp.addEventListener('mousemove',e=>{
+  const show=e=>{
     const r=svg.getBoundingClientRect(),i=Math.max(0,Math.min(pts.length-1,Math.round((e.clientX-r.left)/r.width*(pts.length-1))));
-    const x=pts.length<2?0:i/(pts.length-1)*200;g.setAttribute('x1',x);g.setAttribute('x2',x);
-    const [d,v]=pts[i];tip.textContent=d.slice(5).replace('-','/')+'  '+fmt(v);
-  });
-  sp.addEventListener('mouseleave',()=>{tip.textContent=def});
+    const x=pts.length<2?0:i/(pts.length-1)*200;g.setAttribute('x1',x);g.setAttribute('x2',x);g.style.opacity=.5;
+    const [d,v]=pts[i];let t=d.slice(5).replace('-','/')+' '+fmt(v);
+    const q=qs.filter(q=>q[0]<=d).pop();
+    if(q&&q[2]!==null)t+=' · '+q[1]+'→현재 '+(q[2]>0?'+':'')+q[2].toFixed(1)+'%';
+    tip.textContent=t;
+  };
+  sp.addEventListener('pointermove',show);sp.addEventListener('pointerdown',show);
+  sp.addEventListener('pointerleave',()=>{tip.textContent='';g.style.opacity=''});
 });
 // 업종 버튼
 const tabs=document.querySelectorAll('.tabs button');
@@ -163,26 +167,43 @@ def _num(v: float, dec: int) -> str:
     return f"{v:,.{dec}f}"
 
 
-def _spark(points: list, dec: int, direction: str, tip: str = "") -> str:
-    """1년 종가 추이 (단일 계열이라 범례 없음). 폭 200 기준 좌표, hover로 날짜·값 표시."""
+def _spark(points: list, dec: int, direction: str, quarters: list | None = None, labels: bool = True) -> str:
+    """1년 종가 추이 (단일 계열이라 범례 없음). 폭 200 기준 좌표.
+    점선 = 분기 경계(아래 1Q~4Q 표시), 마우스/터치하면 날짜·값과 그 분기 시작 대비 현재 등락률을 보여준다."""
     vals = [v for _, v in points]
     if len(vals) < 2:
         return ""
+    n = len(vals)
     lo, hi = min(vals), max(vals)
     span = (hi - lo) or 1
     h, pad = 44, 3
-    xy = [(i / (len(vals) - 1) * 200, pad + (hi - v) / span * (h - 2 * pad)) for i, v in enumerate(vals)]
+    xy = [(i / (n - 1) * 200, pad + (hi - v) / span * (h - 2 * pad)) for i, v in enumerate(vals)]
     line = " ".join(f"{x:.1f},{y:.1f}" for x, y in xy)
     area = f"0,{h} {line} 200,{h}"
     lx, _ = xy[-1]
+    qlines, qlabels, qdata = "", "", []
+    for q in quarters or []:
+        if not q.get("start"):
+            continue
+        qdata.append([q["start"], q.get("since", ""), q["pct"]])
+        if q["start"] <= points[0][0]:
+            continue                                   # 그래프 시작보다 이른 경계는 그리지 않음
+        idx = next((i for i, (d, _) in enumerate(points) if d >= q["start"]), None)
+        if idx is None:
+            continue
+        x = idx / (n - 1) * 200
+        qlines += f'<line class="qline" x1="{x:.1f}" x2="{x:.1f}" y1="0" y2="{h}" vector-effect="non-scaling-stroke"/>'
+        qlabels += f'<span style="left:{x / 2:.1f}%">{q["label"][-2:]}</span>'
     return (
-        f'<div class="spark" data-p="{escape(json.dumps(points))}" data-dec="{dec}">'
-        f'<span class="tip">{escape(tip)}</span>'
+        f'<div class="spark" data-p="{escape(json.dumps(points))}" data-dec="{dec}" data-q="{escape(json.dumps(qdata, ensure_ascii=False))}">'
+        '<span class="tip"></span>'
         f'<svg viewBox="0 0 200 {h}" preserveAspectRatio="none" role="img" aria-label="최근 1년 추이, 최저 {_num(lo, dec)} 최고 {_num(hi, dec)}">'
-        f'<polygon points="{area}" fill="var(--{direction}-fill)"/>'
+        f'<polygon points="{area}" fill="var(--{direction}-fill)"/>{qlines}'
         f'<polyline points="{line}" fill="none" stroke="var(--{direction})" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>'
         f'<line class="guide" x1="{lx:.1f}" x2="{lx:.1f}" y1="0" y2="{h}" vector-effect="non-scaling-stroke"/>'
-        "</svg></div>"
+        "</svg>"
+        + (f'<div class="qlabels" aria-hidden="true">{qlabels}</div>' if labels and qlabels else "")
+        + "</div>"
     )
 
 
@@ -203,24 +224,6 @@ def _cap(eok) -> str:
     return f"{eok / 10000:,.1f}조" if eok >= 10000 else f"{eok:,}억"
 
 
-def _qlabel(x: dict) -> str:
-    return x["label"] + ("*" if x.get("ongoing") else "")
-
-
-def _qs(q: dict) -> str:
-    """분기별 수익률 4칸 (예전 데이터에는 없음)."""
-    qs = q.get("quarters") or []
-    if not qs:
-        return ""
-    def cell(x: dict) -> str:
-        v = x["pct"]
-        cls, txt = ("flat", "-") if v is None else (_dir(v), f"{v:+.0f}%" if abs(v) >= 10 else f"{v:+.1f}%")
-        return f'<div><span>{_qlabel(x)}</span><b class="{cls}">{txt}</b></div>'
-
-    cells = "".join(cell(x) for x in qs)
-    return f'<div class="qs" aria-label="분기별 수익률">{cells}</div>'
-
-
 def _tile(q: dict) -> str:
     dec = q.get("decimals", 2)
     m1 = q.get("m1_pct", q.get("period_pct"))
@@ -229,9 +232,8 @@ def _tile(q: dict) -> str:
   <span class="nm">{escape(q['name'])}</span>
   <span class="px">{_num(q['price'], dec)}</span>
   <span class="chg {_dir(q['change'])}">{_arrow(q['change'])} {_num(abs(q['change']), dec)} ({q['change_pct']:+.2f}%)</span>
-  {_spark(q['spark'], dec, _dir(_trend(q)))}
-  <div class="foot">{_ret(m1, '1개월')}{_ret(q.get('y1_pct'), '1년')}</div>
-  {_qs(q)}
+  {_spark(q.get('spark', []), dec, _dir(_trend(q)), q.get('quarters'))}
+  <div class="foot">{_ret(m1, '1개월')}{_ret(q.get('ytd_pct'), '연초 대비')}</div>
 </div>"""
 
 
@@ -239,23 +241,25 @@ def _stocks_table(stocks: list[dict], caption: str) -> str:
     if not stocks:
         return '<p class="empty">시세를 받지 못했습니다.</p>'
     num = lambda v: "" if v is None else v
-    rows = "".join(
-        f'<tr{' class="pin"' if s.get("pinned") else ''} data-rank="{i}" data-name="{escape(s["name"])}" data-price="{s["price"]}" data-chg="{s["change_pct"]}" '
-        f'data-m1="{num(s.get("m1_pct", s.get("period_pct")))}" {"".join(f'data-q{j}="{num(x["pct"])}" ' for j, x in enumerate(s.get("quarters") or []))}data-cap="{s.get("cap") or 0}">'
-        f'<td><span class="no">{i}</span>{escape(s["name"])}<span class="code">{escape(s["code"])}</span>{'<span class="mine">보유</span>' if s.get("pinned") else ''}</td>'
-        f'<td>{_num(s["price"], 0)}</td>'
-        f'<td class="{_dir(s["change"])}">{_arrow(s["change"])} {abs(s["change_pct"]):.2f}%</td>'
-        f'<td>{_ret(s.get("m1_pct", s.get("period_pct")))}</td>'
-        + "".join(f'<td>{_ret(x["pct"])}</td>' for x in (s.get("quarters") or [])) +
-        f'<td>{_cap(s.get("cap"))}</td>'
-        f'<td class="sp">{_spark(s["spark"], 0, _dir(_trend(s)))}</td></tr>'
-        for i, s in enumerate(stocks, start=1)
-    )
-    qhead = "".join(f'<th data-k="q{j}">{_qlabel(x)}</th>' for j, x in enumerate(stocks[0].get("quarters") or []))
+    rows = []
+    for i, s in enumerate(stocks, start=1):
+        m1 = s.get("m1_pct", s.get("period_pct"))
+        pin = s.get("pinned")
+        mine = '<span class="mine">보유</span>' if pin else ""
+        rows.append(
+            f'<tr{" class=pin" if pin else ""} data-rank="{i}" data-name="{escape(s["name"])}" data-price="{s["price"]}" '
+            f'data-chg="{s["change_pct"]}" data-m1="{num(m1)}" data-ytd="{num(s.get("ytd_pct"))}" data-cap="{s.get("cap") or 0}">'
+            f'<td><span class="no">{i}</span>{escape(s["name"])}<span class="code">{escape(s["code"])}</span>{mine}</td>'
+            f'<td>{_num(s["price"], 0)}</td>'
+            f'<td class="{_dir(s["change"])}">{_arrow(s["change"])} {abs(s["change_pct"]):.2f}%</td>'
+            f'<td>{_ret(m1)}</td><td>{_ret(s.get("ytd_pct"))}</td>'
+            f'<td>{_cap(s.get("cap"))}</td>'
+            f'<td class="sp">{_spark(s.get("spark", []), 0, _dir(_trend(s)), s.get("quarters"), labels=False)}</td></tr>'
+        )
     return f"""<div class="tablewrap"><table class="sortable">
 <caption hidden>{escape(caption)}</caption>
-<thead><tr><th data-k="rank">종목</th><th data-k="price">종가(원)</th><th data-k="chg">전일 대비</th><th data-k="m1">1개월</th>{qhead}<th data-k="cap">시가총액</th><th>1년 추이</th></tr></thead>
-<tbody>{rows}</tbody></table></div>"""
+<thead><tr><th data-k="rank">종목</th><th data-k="price">종가(원)</th><th data-k="chg">전일 대비</th><th data-k="m1">1개월</th><th data-k="ytd">연초 대비</th><th data-k="cap">시가총액</th><th>1년 추이</th></tr></thead>
+<tbody>{"".join(rows)}</tbody></table></div>"""
 
 
 def _groups_html(m: dict) -> str:
@@ -284,8 +288,16 @@ def _market_html(data: dict) -> str:
         return ""
     tiles = "".join(_tile(q) for q in m.get("indices", []))
     comment = data.get("market_comment", "")
+    md = lambda d: f"{int(d[5:7])}/{int(d[8:])}" if d else ""
+    closed, kr = m.get("closed"), md(m.get("kr_date"))
+    if closed == "all":
+        asof, comment = f"주말·휴일로 새 거래 없음 · {kr} 종가 기준", ""
+    elif closed == "kr":
+        asof = f"국내 휴장 · 코스피는 {kr} 종가 · 해외는 최근 마감"
+    else:
+        asof = "전일 종가 기준 · 해외는 최근 마감"
     comment_html = f'<div class="comment"><span class="lbl">시황</span><p>{escape(comment)}</p></div>' if comment else ""
-    return f"""<h2 class="sec">시장<small>전일 종가 기준 · 해외는 최근 마감 · 그래프는 최근 1년 · 분기별은 각 분기 시작 시점(직전 분기 말) 대비 현재 종가, *는 진행 중인 분기</small></h2>
+    return f"""<h2 class="sec">시장<small>{asof} · 그래프는 최근 1년, 점선은 분기 경계 · 그래프에 마우스를 올리거나 누르면 분기 시작 대비 등락률</small></h2>
 {comment_html}
 <div class="tiles">{tiles}</div>
 {_groups_html(m)}"""
@@ -383,9 +395,30 @@ def save_and_render(data: dict, d: date) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
     data = {**data, "date": d.isoformat()}
-    for name in (f"{d.isoformat()}.json", "latest.json"):
-        (DATA_DIR / name).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    # 오늘 파일만 그래프 데이터까지 저장. latest.json(카톡 전송용)과 지난 날짜 파일은 그래프 점을 빼서 저장소 용량을 줄인다.
+    (DATA_DIR / f"{d.isoformat()}.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    (DATA_DIR / "latest.json").write_text(json.dumps(_slim(data), ensure_ascii=False, indent=2), encoding="utf-8")
+    for p in DATA_DIR.glob("????-??-??.json"):
+        if p.stem < d.isoformat():
+            old = json.loads(p.read_text(encoding="utf-8"))
+            slim = _slim(old)
+            if slim != old:
+                p.write_text(json.dumps(slim, ensure_ascii=False), encoding="utf-8")
     render_all()
+
+
+def _slim(data: dict) -> dict:
+    """그래프용 점(spark)을 뺀 사본. 숫자(종가·등락률·분기 수익률)는 그대로 둔다."""
+    m = data.get("market")
+    if not m:
+        return data
+    strip = lambda q: {k: v for k, v in q.items() if k != "spark"}
+    m = {**m, "indices": [strip(q) for q in m.get("indices", [])]}
+    if "groups" in data["market"]:
+        m["groups"] = [{**g, "stocks": [strip(q) for q in g["stocks"]]} for g in data["market"]["groups"]]
+    if "stocks" in data["market"]:
+        m["stocks"] = [strip(q) for q in data["market"]["stocks"]]
+    return {**data, "market": m}
 
 
 def render_all() -> None:
