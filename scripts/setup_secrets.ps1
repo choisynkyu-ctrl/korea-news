@@ -16,14 +16,16 @@ function Read-Secret($prompt, [switch]$Optional) {
   }
 }
 function Set-Secret($name, $value) {
-  for ($i = 1; $i -le 4; $i++) {
+  $n = 15
+  for ($i = 1; $i -le $n; $i++) {
     $ErrorActionPreference = "Continue"
     & $gh secret set $name --repo $Repo --body $value 2>$null | Out-Null
     $ok = ($LASTEXITCODE -eq 0)
     $ErrorActionPreference = "Stop"
     if ($ok) { Write-Host "  [OK] $name 등록" -ForegroundColor Green; return }
-    Write-Host "  GitHub 응답 오류, 5초 후 다시 시도 ($i/4)" -ForegroundColor Yellow
-    Start-Sleep -Seconds 5
+    if ($i -eq $n) { break }
+    Write-Host "  GitHub 응답 오류, 12초 후 다시 시도 ($i/$n)" -ForegroundColor Yellow
+    Start-Sleep -Seconds 12
   }
   Write-Host "  [실패] $name 등록 실패. 잠시 후 스크립트를 다시 실행하세요." -ForegroundColor Red
   exit 1
